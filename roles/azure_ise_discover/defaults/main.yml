@@ -1,0 +1,60 @@
+---
+organization_name: null  # has to be set by user
+
+##################################################
+#     Azure Networking configuration defaults    #
+##################################################
+
+# Common
+az_location: null
+az_tag_creator: "{{ organization_name }}"
+az_resources_prefix: "{{ organization_name }}"  # default to organization_name, but user should have option to modify
+
+# Resource group
+az_resource_group: "{{ az_resources_prefix }}-rg"
+
+# Virtual Network
+az_virtual_network: "{{ az_resources_prefix }}-vn"
+az_vn_address_prefixes_cidr: 10.0.0.0/16
+
+# Subnet
+az_subnet: 10.0.1.0/24
+
+# Security group
+az_network_security_group: "{{ az_resources_prefix }}-nsg"
+
+# VPN subnets from which we can connect to Azure EIPs (Network Security Group config)
+az_allowed_subnets: null
+
+
+#############################################
+#     ISE Node configuration defaults       #
+#############################################
+
+primarynameserver: "8.8.8.8"
+dnsdomain: "example.com"
+primaryntpserver: "time.nist.gov"
+timezone: "UTC"
+username: "iseadmin"
+password: "Your#1SecretPassword!"
+ersapi: "yes"
+pxgrid: "yes"
+pxgrid_cloud: "no"
+
+# ISE node ssh public key data
+# az_ssh_key_data:
+
+#################################
+#       ISE image defaults      #
+#################################
+
+# Cisco ISE Image
+az_ise_vm_size: "Standard_D4s_v3"
+az_managed_disk_type: "Standard_LRS"
+
+az_ise_image_offer: "cisco-ise-virtual"
+az_ise_image_publisher: "cisco"
+az_ise_image_sku: "cisco-ise_3_4"
+az_ise_image_version: "latest"
+
+# ise_nodes: []

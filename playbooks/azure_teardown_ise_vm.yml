@@ -1,0 +1,10 @@
+---
+- name: Teardown Cisco ISE resources on Azure
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    ../vars/azure_ise_config.yml
+  vars:
+    teardown_task: 'vm'
+  roles:
+    - role: azure_teardown

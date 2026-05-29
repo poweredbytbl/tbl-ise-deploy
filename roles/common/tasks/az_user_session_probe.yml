@@ -1,0 +1,22 @@
+---
+
+# Verify if user session is active
+- name: Get Azure caller facts
+  azure.azcollection.azure_rm_subscription_info:
+  register: az_facts
+  ignore_errors: true
+
+- name: Check Azure connection
+  ansible.builtin.debug:
+    msg: "Azure connection is active."
+  when: az_facts is succeeded
+
+- name: Mark Azure session as validated for this play
+  ansible.builtin.set_fact:
+    az_user_session_validated: true
+  when: az_facts is succeeded
+
+- name: Fail if Azure connection is not active
+  ansible.builtin.fail:
+    msg: "Azure connection is not active or not congigured. Original message: {{ az_facts.msg }}"
+  when: az_facts is failed

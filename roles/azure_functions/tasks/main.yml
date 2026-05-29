@@ -1,0 +1,487 @@
+---
+- name: Verify if user session with Azure is active
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: az_user_session_probe
+  when: not (az_user_session_validated | default(false))
+
+- name: Assert all required variables for Azure Functions deployment
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: required_variables
+    defaults_from: az_required_vars_azure_functions.yml
+
+- name: Replace underscores with hyphens in the az_resources_prefix string
+  ansible.builtin.set_fact:
+    az_resources_prefix: "{{ az_resources_prefix | replace('_', '-') }}"
+
+- name: Derive Azure Functions resource names
+  ansible.builtin.set_fact:
+    az_function_app_name_effective: "{{ az_function_app_name | lower | replace('_', '-') }}"
+    az_function_storage_account_effective: >-
+      {{
+        (
+          az_function_storage_account
+          | default('', true)
+          | trim
+        )
+        if (
+          az_function_storage_account
+          | default('', true)
+          | trim
+        )
+        else (
+          (
+            az_resources_prefix
+            | lower
+            | regex_replace('[^a-z0-9]', '')
+          ) ~ 'funcsa'
+        )[:24]
+      }}
+
+- name: Select Function App subnet from az_subnets
+  ansible.builtin.set_fact:
+    az_function_subnet_selected: >-
+      {{
+        (
+          az_subnets
+          | selectattr('name', 'equalto', az_function_subnet_name)
+          | list
+          | first
+        )
+        if (
+          az_function_subnet_name
+          | default('', true)
+          | trim
+        )
+        else (
+          az_subnets
+          | selectattr('type', 'equalto', az_function_subnet_type)
+          | list
+          | first
+        )
+      }}
+  when: az_function_vnet_integration_enabled
+
+- name: Assert selected Function App subnet exists
+  ansible.builtin.assert:
+    that:
+      - az_function_subnet_selected is defined
+      - az_function_subnet_selected is not none
+      - az_function_subnet_selected.name is defined
+      - az_function_subnet_selected.cidr is defined
+    fail_msg: >-
+      Unable to find a Function App subnet in az_subnets. Define a subnet with
+      type '{{ az_function_subnet_type }}' or set az_function_subnet_name explicitly.
+  when: az_function_vnet_integration_enabled
+
+- name: Derive effective Function App subnet values
+  ansible.builtin.set_fact:
+    az_function_subnet_name_effective: "{{ az_function_subnet_selected.name | replace('_', '-') }}"
+    az_function_subnet_cidr_effective: "{{ az_function_subnet_selected.cidr }}"
+  when: az_function_vnet_integration_enabled
+
+- name: Validate generated Azure resource names
+  ansible.builtin.assert:
+    that:
+      - az_function_app_name_effective | length > 1
+      - az_function_app_name_effective | length <= 60
+      - (not az_function_vnet_integration_enabled) or ('_' not in az_function_subnet_selected.name)
+      - az_function_storage_account_effective is match('^[a-z0-9]{3,24}$')
+      - az_function_runtime in ['dotnet-isolated', 'java', 'node', 'powershell', 'python']
+      - az_function_instance_memory in [512, 2048, 4096]
+    fail_msg: >-
+      Generated Azure Functions resource names are invalid. Check az_resources_prefix,
+      az_function_app_name, az_function_storage_account, az_function_runtime,
+      and az_function_instance_memory.
+
+- name: Assert VNet settings when Flex Consumption VNet integration is enabled
+  ansible.builtin.assert:
+    that:
+      - az_virtual_network is defined
+      - az_virtual_network is not none
+      - az_vn_address_prefixes_cidr is defined
+      - az_vn_address_prefixes_cidr is not none
+    fail_msg: >-
+      az_virtual_network and az_vn_address_prefixes_cidr are required when
+      az_function_vnet_integration_enabled is true.
+  when: az_function_vnet_integration_enabled
+
+- name: Validate custom app settings against Flex Consumption restrictions
+  ansible.builtin.assert:
+    that:
+      - "'FUNCTIONS_WORKER_RUNTIME' not in az_function_app_settings"
+      - "'FUNCTIONS_WORKER_RUNTIME_VERSION' not in az_function_app_settings"
+      - "'FUNCTIONS_EXTENSION_VERSION' not in az_function_app_settings"
+      - "'ENABLE_ORYX_BUILD' not in az_function_app_settings"
+    fail_msg: >-
+      Flex Consumption doesn't support FUNCTIONS_WORKER_RUNTIME,
+      FUNCTIONS_WORKER_RUNTIME_VERSION, FUNCTIONS_EXTENSION_VERSION, or
+      ENABLE_ORYX_BUILD as app settings.
+
+- name: Ensure Azure resource group exists
+  azure.azcollection.azure_rm_resourcegroup:
+    name: "{{ az_resource_group }}"
+    location: "{{ az_location }}"
+    tags: "{{ az_function_tags }}"
+
+- name: Ensure Azure storage account for Function App exists
+  azure.azcollection.azure_rm_storageaccount:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ az_function_storage_account_effective }}"
+    location: "{{ az_location }}"
+    account_type: "{{ az_function_storage_account_type }}"
+    kind: StorageV2
+    https_only: true
+    minimum_tls_version: TLS1_2
+    tags: "{{ az_function_tags }}"
+
+- name: Ensure virtual network for Flex Consumption integration exists
+  azure.azcollection.azure_rm_virtualnetwork:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ az_virtual_network }}"
+    address_prefixes: "{{ az_vn_address_prefixes_cidr }}"
+    tags: "{{ az_function_tags }}"
+  when: az_function_vnet_integration_enabled
+
+- name: Ensure delegated subnet for Flex Consumption integration exists
+  azure.azcollection.azure_rm_subnet:
+    resource_group: "{{ az_resource_group }}"
+    virtual_network_name: "{{ az_virtual_network }}"
+    name: "{{ az_function_subnet_name_effective }}"
+    address_prefixes_cidr:
+      - "{{ az_function_subnet_cidr_effective }}"
+    delegations:
+      - name: "{{ az_function_subnet_name_effective }}-delegation"
+        serviceName: "Microsoft.App/environments"
+  when: az_function_vnet_integration_enabled
+
+- name: Check if Azure CLI is available for Flex Consumption deployment
+  ansible.builtin.command:
+    argv:
+      - az
+      - version
+  register: az_cli_check
+  changed_when: false
+  failed_when: az_cli_check.rc != 0
+
+- name: Get virtual network resource ID for Flex Consumption integration
+  ansible.builtin.command:
+    argv:
+      - az
+      - network
+      - vnet
+      - show
+      - --resource-group
+      - "{{ az_resource_group }}"
+      - --name
+      - "{{ az_virtual_network }}"
+      - --query
+      - id
+      - -o
+      - tsv
+  register: az_function_vnet_id
+  changed_when: false
+  when: az_function_vnet_integration_enabled
+
+- name: Check whether Flex Consumption is available in the selected region
+  ansible.builtin.command:
+    argv:
+      - az
+      - functionapp
+      - list-flexconsumption-locations
+      - --query
+      - "[?name=='{{ az_location }}'] | length(@)"
+      - -o
+      - tsv
+  register: az_function_flex_location_check
+  changed_when: false
+
+- name: Fail when Flex Consumption is unavailable in the selected region
+  ansible.builtin.assert:
+    that:
+      - (az_function_flex_location_check.stdout | trim | int) > 0
+    fail_msg: >-
+      Flex Consumption isn't available in region {{ az_location }}. Run
+      `az functionapp list-flexconsumption-locations` to choose a supported region.
+
+- name: Check whether the selected runtime version is supported for Flex Consumption
+  ansible.builtin.command:
+    argv:
+      - az
+      - functionapp
+      - list-flexconsumption-runtimes
+      - --location
+      - "{{ az_location }}"
+      - --runtime
+      - "{{ az_function_runtime }}"
+      - --query
+      - "[?version=='{{ az_function_runtime_version }}'] | length(@)"
+      - -o
+      - tsv
+  register: az_function_flex_runtime_check
+  changed_when: false
+
+- name: Fail when the selected runtime version is unsupported for Flex Consumption
+  ansible.builtin.assert:
+    that:
+      - (az_function_flex_runtime_check.stdout | trim | int) > 0
+    fail_msg: >-
+      Runtime {{ az_function_runtime }} {{ az_function_runtime_version }} isn't
+      supported for Flex Consumption in {{ az_location }}.
+
+- name: Check whether the Function App already exists
+  ansible.builtin.command:
+    argv:
+      - az
+      - functionapp
+      - show
+      - --resource-group
+      - "{{ az_resource_group }}"
+      - --name
+      - "{{ az_function_app_name_effective }}"
+      - --query
+      - name
+      - -o
+      - tsv
+  register: az_function_show
+  changed_when: false
+  failed_when: false
+
+- name: Create Flex Consumption Function App when missing
+  ansible.builtin.command:
+    argv: >-
+      {{
+        [
+          'az',
+          'functionapp',
+          'create',
+          '--resource-group',
+          az_resource_group,
+          '--name',
+          az_function_app_name_effective,
+          '--storage-account',
+          az_function_storage_account_effective,
+          '--flexconsumption-location',
+          az_location,
+          '--runtime',
+          az_function_runtime,
+          '--runtime-version',
+          az_function_runtime_version,
+          '--instance-memory',
+          (az_function_instance_memory | string)
+        ] + (
+          az_function_vnet_integration_enabled
+          | ternary(
+              [
+                '--vnet',
+                az_function_vnet_id.stdout | trim,
+                '--subnet',
+                az_function_subnet_name_effective
+              ],
+              []
+            )
+        )
+      }}
+  register: az_function_create_result
+  changed_when: az_function_show.rc != 0
+  when: az_function_show.rc != 0
+
+- name: Check current VNet integration for existing Function App
+  ansible.builtin.command:
+    argv:
+      - az
+      - functionapp
+      - vnet-integration
+      - list
+      - --resource-group
+      - "{{ az_resource_group }}"
+      - --name
+      - "{{ az_function_app_name_effective }}"
+      - --query
+      - "[?subnetResourceId && contains(subnetResourceId, '/virtualNetworks/{{ az_virtual_network }}/subnets/{{ az_function_subnet_name_effective }}')] | length(@)"
+      - -o
+      - tsv
+  register: az_function_vnet_list
+  changed_when: false
+  when:
+    - az_function_vnet_integration_enabled
+    - az_function_show.rc == 0
+
+- name: Add VNet integration to existing Flex Consumption Function App
+  ansible.builtin.command:
+    argv:
+      - az
+      - functionapp
+      - vnet-integration
+      - add
+      - --resource-group
+      - "{{ az_resource_group }}"
+      - --name
+      - "{{ az_function_app_name_effective }}"
+      - --vnet
+      - "{{ az_function_vnet_id.stdout | trim }}"
+      - --subnet
+      - "{{ az_function_subnet_name_effective }}"
+  register: az_function_vnet_add
+  changed_when: true
+  when:
+    - az_function_vnet_integration_enabled
+    - az_function_show.rc == 0
+    - (az_function_vnet_list.stdout | trim | int) == 0
+
+- name: Apply custom app settings to Flex Consumption Function App
+  ansible.builtin.command:
+    argv: >-
+      {{
+        [
+          'az',
+          'functionapp',
+          'config',
+          'appsettings',
+          'set',
+          '--resource-group',
+          az_resource_group,
+          '--name',
+          az_function_app_name_effective,
+          '--settings'
+        ] + (
+          az_function_app_settings
+          | dict2items
+          | map(attribute='key')
+          | zip(az_function_app_settings | dict2items | map(attribute='value'))
+          | map('join', '=')
+          | list
+        )
+      }}
+  register: az_function_app_settings_result
+  changed_when: az_function_app_settings | length > 0
+  when: az_function_app_settings | length > 0
+
+- name: Deploy Azure Function code package
+  when: az_function_deploy_code
+  block:
+    - name: Create temporary staging directory for Function App package
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: azure-functions-stage-
+      register: az_function_stage_dir
+
+    - name: Create temporary zip path for Function App package
+      ansible.builtin.tempfile:
+        state: file
+        prefix: azure-functions-package-
+        suffix: .zip
+      register: az_function_package_file
+
+    - name: Remove placeholder file before archive creation
+      ansible.builtin.file:
+        path: "{{ az_function_package_file.path }}"
+        state: absent
+
+    - name: Copy shared Function App files into staging directory
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/function_app/"
+        dest: "{{ az_function_stage_dir.path }}/"
+        mode: "0644"
+
+    - name: Render host.json into staging directory
+      ansible.builtin.template:
+        src: host.json.j2
+        dest: "{{ az_function_stage_dir.path }}/host.json"
+        mode: "0644"
+
+    - name: Ensure HTTPTrigger1 directory exists in staging directory
+      ansible.builtin.file:
+        path: "{{ az_function_stage_dir.path }}/HTTPTrigger1"
+        state: directory
+        mode: "0755"
+
+    - name: Render HTTPTrigger1 function.json into staging directory
+      ansible.builtin.template:
+        src: HTTPTrigger1/function.json.j2
+        dest: "{{ az_function_stage_dir.path }}/HTTPTrigger1/function.json"
+        mode: "0644"
+
+    - name: Ensure TimerTrigger1 directory exists in staging directory
+      ansible.builtin.file:
+        path: "{{ az_function_stage_dir.path }}/TimerTrigger1"
+        state: directory
+        mode: "0755"
+
+    - name: Render TimerTrigger1 function.json into staging directory
+      ansible.builtin.template:
+        src: TimerTrigger1/function.json.j2
+        dest: "{{ az_function_stage_dir.path }}/TimerTrigger1/function.json"
+        mode: "0644"
+
+    - name: Create zip archive for Function App deployment
+      ansible.builtin.command:
+        argv:
+          - zip
+          - -r
+          - "{{ az_function_package_file.path }}"
+          - .
+        chdir: "{{ az_function_stage_dir.path }}"
+      register: az_function_package_result
+      changed_when: az_function_package_result.rc == 0
+
+    - name: Pause briefly before deploying Function App package
+      ansible.builtin.pause:
+        seconds: 30
+
+    - name: Deploy Function App package to Azure
+      ansible.builtin.command:
+        argv:
+          - az
+          - functionapp
+          - deployment
+          - source
+          - config-zip
+          - --resource-group
+          - "{{ az_resource_group }}"
+          - --name
+          - "{{ az_function_app_name_effective }}"
+          - --src
+          - "{{ az_function_package_file.path }}"
+          - --build-remote
+          - "{{ 'true' if az_function_remote_build else 'false' }}"
+      register: az_function_deploy_result
+      changed_when: true
+      retries: "{{ az_function_deploy_retries }}"
+      delay: "{{ az_function_deploy_delay }}"
+      until: az_function_deploy_result.rc == 0
+
+  always:
+    - name: Remove temporary Function App staging directory
+      ansible.builtin.file:
+        path: "{{ az_function_stage_dir.path }}"
+        state: absent
+      when:
+        - az_function_stage_dir is defined
+        - az_function_stage_dir.path is defined
+
+    - name: Remove temporary Function App package
+      ansible.builtin.file:
+        path: "{{ az_function_package_file.path }}"
+        state: absent
+      when:
+        - az_function_package_file is defined
+        - az_function_package_file.path is defined
+
+- name: Show deployed Azure Function App details
+  ansible.builtin.debug:
+    msg:
+      function_app_name: "{{ az_function_app_name_effective }}"
+      resource_group: "{{ az_resource_group }}"
+      storage_account: "{{ az_function_storage_account_effective }}"
+      hosting_plan: "Flex Consumption"
+      vnet_integration_enabled: "{{ az_function_vnet_integration_enabled }}"
+      virtual_network: "{{ az_virtual_network if az_function_vnet_integration_enabled else '' }}"
+      subnet: "{{ az_function_subnet_name_effective if az_function_vnet_integration_enabled else '' }}"
+      runtime: "{{ az_function_runtime }}"
+      runtime_version: "{{ az_function_runtime_version }}"
+      instance_memory: "{{ az_function_instance_memory }}"
+      deployed_functions:
+        - HTTPTrigger1
+        - TimerTrigger1

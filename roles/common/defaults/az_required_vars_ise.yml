@@ -1,0 +1,22 @@
+---
+
+required_variables:
+  organization_name: "{{ organization_name }}"
+  az_location: "{{ az_location }}"
+  az_resource_group: "{{ az_resource_group }}"
+  az_network_security_group: "{{ az_network_security_group }}"
+  az_subnet: "{{ az_subnet }}"
+  az_ise_image_offer: "{{ az_ise_image_offer }}"
+  az_ise_image_publisher: "{{ az_ise_image_publisher }}"
+  az_ise_image_sku: "{{ az_ise_image_sku }}"
+  az_ise_image_version: "{{ az_ise_image_version }}"
+  ise_nodes: "{{ ise_nodes }}"
+  primarynameserver: "{{ primarynameserver }}"
+  dnsdomain: "{{ dnsdomain }}"
+  primaryntpserver: "{{ primaryntpserver }}"
+  timezone: "{{ timezone }}"
+  username: "{{ username }}"
+  password: "{{ password }}"
+  ersapi: "{{ ersapi }}"
+  pxgrid: "{{ pxgrid }}"
+  pxgrid_cloud: "{{ pxgrid_cloud }}"

@@ -1,0 +1,85 @@
+---
+
+#######################################
+#     Required configuration data     #
+#######################################
+
+organization_name: "ISE-DEV Powered by TBL"
+
+
+#######################################
+#     General Azure configuration     #
+#######################################
+
+az_location: eastus2  # e.g. eastus
+az_resources_prefix: "ISE-POC"
+az_cust_id: "TBLN"
+az_resource_group: "{{ az_cust_id | lower }}-{{ az_location }}-{{ az_resources_prefix | lower }}-rg"
+az_tag_creator: "TBL PAM Ansible Automation"
+
+az_allowed_subnets:
+  - 206.198.241.17/32
+  - 202.90.34.0/23
+
+results_dir: "{{ playbook_dir }}"
+
+# Path to templated userdata config
+userdata_path: "{{ results_dir }}/.user_data"
+
+
+#######################################
+#     ISE Network configuration     #
+#######################################
+
+az_virtual_network: "{{ az_resources_prefix }}-vn"
+az_vn_address_prefixes_cidr: 198.18.0.0/24
+az_subnets:
+  - name: "{{ az_resources_prefix }}-mgmt-subnet"
+    cidr: "198.18.0.0/27"
+    type: mgmt
+  - name: "{{ az_resources_prefix }}-func-subnet"
+    cidr: "198.18.0.64/27"
+    type: func
+
+# Security group
+az_network_security_group: "{{ az_resources_prefix }}-nsg"
+
+
+######################################
+#     ISE System configuration       #
+######################################
+
+primarynameserver: "208.67.222.222"
+dnsdomain: "poweredbytbl.net"
+primaryntpserver: "time.nist.gov"
+timezone: "UTC"
+username: "iseadmin"
+password: "Your#1SecretPassword!"
+ersapi: "yes"
+pxgrid: "yes"
+pxgrid_cloud: "no"
+
+# ISE node ssh public key data
+az_ssh_key_data: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIN4NaUAogMuoIQRObS1iQpYx7oKzm0YSgSWkU2Zcxy4"
+
+#################################
+#       ISE image details       #
+#################################
+
+# Cisco ISE Image
+az_ise_vm_size: "Standard_D4s_v3"
+az_managed_disk_type: "Standard_LRS"
+
+az_ise_image_offer: "cisco-ise-virtual"
+az_ise_image_publisher: "cisco"
+az_ise_image_sku: "cisco-ise_3_4"
+az_ise_image_version: "latest"
+
+ise_nodes:
+  - hostname: "ise-{{ az_location }}-n1"
+    ise_roles: "PrimaryAdmin"  # This will be the first node deployed, so it will be the primary admin node in the deployment.
+    disk_size: 500
+  - hostname: "ise-{{ az_location }}-n2"
+    ise_roles: "SecondaryAdmin, SecondaryMonitoring"
+    ise_services: "Session, Profiler, pxGrid"
+    disk_size: 500

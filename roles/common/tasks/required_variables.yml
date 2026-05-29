@@ -1,0 +1,18 @@
+---
+
+- name: Assert that required variables are provided
+  ansible.builtin.assert:
+    that:
+      - variable.value is defined
+      - variable.value is not none
+      - not (variable.value is string and variable.value | trim in ['', 'None'])
+      - not (variable.value is mapping and variable.value | length == 0)
+      - not (variable.value is sequence and variable.value is not string and variable.value | length == 0)
+    fail_msg: "Verification for variables failed: missing required variable: {{ variable.key }}"
+    success_msg: "Required variable: {{ variable.key }} provided"
+    quiet: true
+  loop: "{{ required_variables | dict2items }}"
+  loop_control:
+    loop_var: variable
+    label: "{{ variable.key }}"
+  when: required_variables is defined

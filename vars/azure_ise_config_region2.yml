@@ -1,0 +1,76 @@
+---
+
+#######################################
+#     Required configuration data     #
+#######################################
+
+organization_name: "PAM Powered by TBL"
+
+
+#######################################
+#     General Azure configuration     #
+#######################################
+
+az_location: centralus  # e.g. eastus
+az_resources_prefix: "PAM-ISE"
+az_resource_group: "tbln-{{ az_location }}-{{ az_resources_prefix | lower }}-rg"
+az_tag_creator: "TBL PAM Ansible Automation"
+
+az_allowed_subnets:
+  - 206.198.241.17/32
+  - 202.90.34.0/23
+
+results_dir: "{{ playbook_dir }}"
+
+# Path to templated userdata config
+userdata_path: "{{ results_dir }}/.user_data"
+
+
+#######################################
+#     ISE Network configuration     #
+#######################################
+
+az_virtual_network: "{{ az_resources_prefix }}-vn"
+az_vn_address_prefixes_cidr: 198.19.0.128/28
+az_subnets:
+  - name: "{{ az_resources_prefix }}-subnet"
+    cidr: "198.19.0.128/29"
+    type: mgmt
+
+# Security group
+az_network_security_group: "{{ az_resources_prefix }}-nsg"
+
+
+######################################
+#     ISE System configuration       #
+######################################
+
+hostname: "{{ az_resources_prefix }}-node1"
+primarynameserver: "8.8.8.8"
+dnsdomain: "poweredbytbl.net"
+primaryntpserver: "time.nist.gov"
+timezone: "UTC"
+username: "iseadmin"
+password: "Your#1SecretPassword!"
+ersapi: "yes"
+pxgrid: "yes"
+pxgrid_cloud: "no"
+
+# ISE node ssh public key data
+az_ssh_key_data: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIN4NaUAogMuoIQRObS1iQpYx7oKzm0YSgSWkU2Zcxy4"
+
+#################################
+#       ISE image details       #
+#################################
+
+# Cisco ISE Image
+az_ise_vm_size: "Standard_D4s_v3"
+az_managed_disk_type: "Standard_LRS"
+
+az_ise_image_offer: "cisco-ise-virtual"
+az_ise_image_publisher: "cisco"
+az_ise_image_sku: "cisco-ise_3_4"
+az_ise_image_version: "latest"
+
+ise_nodes:
+  - hostname: "{{ az_resources_prefix }}-node2"

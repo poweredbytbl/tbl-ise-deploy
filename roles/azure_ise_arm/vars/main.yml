@@ -1,0 +1,7 @@
+---
+# vars/ are used by the role and not likely to be changed
+# Deployment results path
+results_dir: "{{ playbook_dir }}/results"
+
+# Path to templated userdata config
+userdata_ise_path: "{{ results_dir }}/.userdata_ise"

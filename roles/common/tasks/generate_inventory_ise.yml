@@ -1,0 +1,72 @@
+---
+
+- name: Set inventory path
+  ansible.builtin.set_fact:
+    results_inventory_path_ise: "{{ results_dir }}/inventory_ise_{{ az_location }}.yml"
+
+- name: Initialize inventory hosts
+  ansible.builtin.set_fact:
+    inventory_ise_hosts: {}
+
+- name: Build inventory hosts from discovered instances
+  ansible.builtin.set_fact:
+    inventory_ise_hosts: >-
+      {{
+        inventory_ise_hosts
+        | combine({
+            instance_item.name: {
+              'ansible_host': (
+                (
+                  instance_item.nics
+                  | default([])
+                  | map(attribute='public_ip_address')
+                  | reject('equalto', None)
+                  | list
+                  | first
+                )
+                | default(
+                    (
+                      instance_item.nics
+                      | default([])
+                      | map(attribute='private_ip_address')
+                      | reject('equalto', None)
+                      | list
+                      | first
+                    ),
+                    true
+                  )
+              ),
+              'ansible_user': username,
+              'azure_vm_name': instance_item.name,
+              'location': instance_item.location,
+              'resource_group': instance_item.resource_group,
+              'power_state': instance_item.power_state,
+              'os_disk_name': instance_item.os_disk_name,
+              'image': instance_item.image,
+              'tags': instance_item.tags,
+              'nics': instance_item.nics
+            }
+          })
+      }}
+  loop: "{{ instances_info | default([]) }}"
+  loop_control:
+    loop_var: instance_item
+    label: "{{ instance_item.name }}"
+
+- name: Build inventory data
+  ansible.builtin.set_fact:
+    inventory_ise_data:
+      all:
+        children:
+          azure_ise:
+            hosts: "{{ inventory_ise_hosts }}"
+
+- name: Write generated inventory file
+  ansible.builtin.copy:
+    dest: "{{ results_inventory_path_ise }}"
+    mode: "0644"
+    content: "{{ inventory_ise_data | to_nice_yaml(indent=2) }}"
+
+- name: Show generated inventory path
+  ansible.builtin.debug:
+    msg: "Generated inventory written to {{ results_inventory_path_ise }}"

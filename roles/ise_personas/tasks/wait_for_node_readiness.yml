@@ -1,0 +1,78 @@
+---
+- name: Wait for ISE API port to accept connections
+  ansible.builtin.wait_for:
+    host: "{{ item.ip }}"
+    port: 443
+    connect_timeout: 10
+    sleep: "{{ personas_deployment_ise_api_wait_sleep }}"
+    timeout: "{{ personas_deployment_ise_api_wait_timeout }}"
+  loop: "{{ personas_deployment_cluster_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+
+- name: Wait for primary node deployment state
+  cisco.ise.node_deployment_info:
+    ise_hostname: "{{ personas_deployment_primary_node.ip }}"
+    ise_username: "{{ personas_deployment_ise_username }}"
+    ise_password: "{{ personas_deployment_ise_password }}"
+    ise_verify: "{{ personas_deployment_ise_verify }}"
+    ise_single_request_timeout: "{{ personas_deployment_ise_single_request_timeout }}"
+    ise_version: "{{ personas_deployment_ise_version }}"
+    hostname: "{{ personas_deployment_primary_node.hostname }}"
+  register: personas_deployment_primary_status
+  until: >-
+    'Standalone' in (personas_deployment_primary_status.ise_response.roles | default([]))
+    or 'PrimaryAdmin' in (personas_deployment_primary_status.ise_response.roles | default([]))
+  retries: "{{ personas_deployment_ise_api_retries }}"
+  delay: "{{ personas_deployment_ise_api_retry_delay }}"
+
+- name: Wait for secondary nodes to report STANDALONE
+  cisco.ise.node_deployment_info:
+    ise_hostname: "{{ item.ip }}"
+    ise_username: "{{ personas_deployment_ise_username }}"
+    ise_password: "{{ personas_deployment_ise_password }}"
+    ise_verify: "{{ personas_deployment_ise_verify }}"
+    ise_single_request_timeout: "{{ personas_deployment_ise_single_request_timeout }}"
+    ise_version: "{{ personas_deployment_ise_version }}"
+    hostname: "{{ item.hostname }}"
+  loop: "{{ personas_deployment_secondary_nodes }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  register: personas_deployment_secondary_status
+  until: "'Standalone' in (personas_deployment_secondary_status.ise_response.roles | default([]))"
+  retries: "{{ personas_deployment_ise_api_retries }}"
+  delay: "{{ personas_deployment_ise_api_retry_delay }}"
+
+- name: Promote standalone primary node
+  cisco.ise.node_standalone_to_primary:
+    ise_hostname: "{{ personas_deployment_primary_node.ip }}"
+    ise_username: "{{ personas_deployment_ise_username }}"
+    ise_password: "{{ personas_deployment_ise_password }}"
+    ise_verify: "{{ personas_deployment_ise_verify }}"
+    ise_single_request_timeout: "{{ personas_deployment_ise_single_request_timeout }}"
+    ise_version: "{{ personas_deployment_ise_version }}"
+    hostname: "{{ personas_deployment_primary_node.hostname }}"
+  register: personas_deployment_primary_promotion
+  when: "'Standalone' in (personas_deployment_primary_status.ise_response.roles | default([]))"
+
+- name: Wait for primary ISE API port after promotion
+  ansible.builtin.wait_for:
+    host: "{{ personas_deployment_primary_node.ip }}"
+    port: 443
+    connect_timeout: 10
+    sleep: "{{ personas_deployment_ise_api_wait_sleep }}"
+    timeout: "{{ personas_deployment_ise_api_wait_timeout }}"
+
+- name: Wait for primary node to report PrimaryAdmin
+  cisco.ise.node_deployment_info:
+    ise_hostname: "{{ personas_deployment_primary_node.ip }}"
+    ise_username: "{{ personas_deployment_ise_username }}"
+    ise_password: "{{ personas_deployment_ise_password }}"
+    ise_verify: "{{ personas_deployment_ise_verify }}"
+    ise_single_request_timeout: "{{ personas_deployment_ise_single_request_timeout }}"
+    ise_version: "{{ personas_deployment_ise_version }}"
+    hostname: "{{ personas_deployment_primary_node.hostname }}"
+  register: personas_deployment_primary_status
+  until: "'PrimaryAdmin' in (personas_deployment_primary_status.ise_response.roles | default([]))"
+  retries: "{{ personas_deployment_ise_api_retries }}"
+  delay: "{{ personas_deployment_ise_api_retry_delay }}"

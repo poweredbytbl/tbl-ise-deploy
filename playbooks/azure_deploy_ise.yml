@@ -1,0 +1,34 @@
+---
+- name: Deploy Cisco ISE node(s) on Azure
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files:
+    ../vars/azure_ise_config.yml
+  pre_tasks:
+    - name: Resolve/create Webex space once
+      ansible.builtin.include_role:
+        name: tbl.webex_bot.webex_space
+      vars:
+        webex_action: "create"
+        webex_space_title: "Ansible ISE Deployment POC"
+        webex_participants:
+          - dcantwell@tblnetworks.com
+          # - ptredway@tblnetworks.com
+          # - lshippy@tblnetworks.com
+          # - catkins@tblnetworks.com
+  vars:
+    webex_bot_token: "{{ lookup('ansible.builtin.env', 'WEBEX_BOT_TOKEN') }}"
+  roles:
+    - azure_network_infrastructure
+    - azure_ise
+
+# - name: Deploy Cisco ISE node(s) on Azure
+#   hosts: localhost
+#   gather_facts: false
+#   connection: local
+#   vars_files:
+#     ../vars/azure_ise_config_region2.yml
+#   roles:
+#     - azure_network_infrastructure
+#     - azure_ise

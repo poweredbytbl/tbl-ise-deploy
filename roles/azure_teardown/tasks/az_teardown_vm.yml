@@ -1,0 +1,7 @@
+---
+- name: "Remove virtual machine: {{ hostname }} in resource group: {{ az_resource_group }}"
+  azure.azcollection.azure_rm_virtualmachine:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ hostname }}"
+    remove_on_absent: virtual_storage
+    state: absent

@@ -1,0 +1,37 @@
+---
+organization_name: null
+
+az_location: null
+az_resources_prefix: "{{ organization_name }}"
+az_resource_group: "{{ az_resources_prefix }}-rg"
+
+az_function_app_name: "{{ az_resources_prefix }}-func-app"
+az_function_storage_account: null
+az_function_storage_account_type: "Standard_LRS"
+
+az_function_runtime: "python"
+az_function_runtime_version: "3.11"
+az_function_instance_memory: 2048
+az_function_deploy_code: true
+az_function_remote_build: true
+az_function_deploy_retries: 3
+az_function_deploy_delay: 20
+az_function_vnet_integration_enabled: true
+
+az_virtual_network: "{{ az_resources_prefix }}-vn"
+az_vn_address_prefixes_cidr: "10.2.0.0/16"
+az_function_subnet_type: "func"
+az_function_subnet_name: null
+az_function_subnet_cidr: null
+
+az_function_http_auth_level: "function"
+az_function_timer_schedule: "0 */5 * * * *"
+
+# Flex Consumption deprecates runtime/version app settings such as
+# FUNCTIONS_WORKER_RUNTIME and FUNCTIONS_EXTENSION_VERSION. Keep this for
+# non-platform-specific custom settings only.
+az_function_app_settings: {}
+
+az_function_tags:
+  creator: "{{ organization_name }}"
+  workload: "azure-functions"

@@ -1,0 +1,9 @@
+---
+- name: Deploy Azure Function App with HTTP and Timer triggers
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files:
+    - ../vars/azure_ise_config.yml
+  roles:
+    - azure_functions

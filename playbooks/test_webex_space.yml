@@ -1,0 +1,33 @@
+---
+- name: Test webex_space role
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    webex_participants:
+      - dcantwell@tblnetworks.com
+    # Required env vars:
+    #   WEBEX_BOT_TOKEN
+    #   WEBEX_SPACE_TITLE
+    # Optional env vars:
+    #   WEBEX_PARTICIPANTS (comma-separated emails)
+    #   WEBEX_TEST_MESSAGE
+    webex_bot_token: "{{ lookup('ansible.builtin.env', 'WEBEX_BOT_TOKEN') }}"
+    webex_space_title: "Ansible ISE Deployment POC"
+
+  roles:
+    - role: tbl.webex_bot.webex_space
+      vars:
+        webex_action: "create"
+    - role: tbl.webex_bot.webex_space
+      vars:
+        webex_action: "message"
+        webex_markdown: |
+          # Ansible Automation
+
+          ISE Upgrade has started!
+
+          ```
+          ansible-playbook upgrade_ise.yml
+          ```

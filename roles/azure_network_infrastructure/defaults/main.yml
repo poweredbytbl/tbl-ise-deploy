@@ -1,0 +1,55 @@
+---
+organization_name: null  # has to be set by user
+
+##################################################
+#     Networking Azure configuration defaults    #
+##################################################
+
+# Common
+az_location: null
+az_tag_creator: "{{ organization_name }}"
+az_resources_prefix: "{{ organization_name }}"  # default to organization_name, but user should have option to modify
+
+# Resource group
+az_resource_group: "{{ az_resources_prefix }}-rg"
+
+# Virtual Network
+az_virtual_network: "{{ az_resources_prefix }}-vn"
+az_vn_address_prefixes_cidr: 10.1.0.0/16
+
+# Subnets
+az_subnets: |
+  {% filter from_yaml %}
+  - name: "{{ az_resources_prefix }}-mgmt-subnet-512"
+    cidr: "10.1.1.0/24"
+    VPN: 512
+    type: mgmt
+  - name: "{{ az_resources_prefix }}-transport-subnet-0"
+    cidr: "10.1.2.0/24"
+    VPN: 0
+    type: transport
+  {% if vmanage_instances is defined and vmanage_instances | length > 2 %}
+  - name: "{{ az_resources_prefix }}-cluster-subnet-0"
+    cidr: "10.1.3.0/24"
+    VPN: 0
+    type: cluster
+  {% endif %}
+  {% if edge_instances is defined %}
+  - name: "{{ az_resources_prefix }}-service-subnet-1"
+    cidr: "10.1.101.0/24"
+    VPN: 1
+    type: service
+  {% endif %}
+  {% if ux20_deployment is defined and ux20_deployment == true %}
+  - name: "{{ az_resources_prefix }}-service-subnet-10"
+    cidr: "10.1.4.0/24"  # default ips from official Cisco guides
+    VPN: 10
+    type: service
+  {% endif %}
+  {% endfilter %}
+
+# Security group
+az_network_security_group: "{{ az_resources_prefix }}-nsg"
+
+# VPN subnets from which we can connect to Azure EIPs (Network Security Group config)
+az_allowed_subnets: null

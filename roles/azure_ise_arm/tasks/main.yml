@@ -1,0 +1,148 @@
+- name: Webex Space notification for beginning of ISE VM creation
+  ansible.builtin.include_role:
+    name: tbl.webex_bot.webex_space
+  vars:
+    webex_action: "message"
+    webex_markdown: |
+      ### ISE Azure VM creation (ARM deployment) has begun at {{ now(fmt='%m/%d/%Y %h:%M:%S%p') }}.
+
+- name: Verify if user session with Azure is active
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: az_user_session_probe
+  when: not (az_user_session_validated | default(false))
+
+- name: "Check if the value of hostname has length of 19 or less"
+  block:
+    - name: Assert hostname length for ISE node
+      ansible.builtin.assert:
+        that:
+          - instance_item.hostname | length > 0
+          - instance_item.hostname | length <= 19
+        fail_msg: "Verification for hostname failed, wrong hostname: {{ instance_item.hostname }}"
+      loop: "{{ ise_nodes }}"
+      loop_control:
+        loop_var: instance_item
+        label: "{{ instance_item.hostname }}"
+  rescue:
+    - name: Webex Space notification for hostname verification failure
+      ansible.builtin.include_role:
+        name: tbl.webex_bot.webex_space
+      vars:
+        webex_action: "message"
+        webex_markdown: |
+          ### Deployment error at {{ now(fmt='%m/%d/%Y %h:%M:%S%p') }}.
+          Hostname verification failed for one or more ISE nodes. Check the hostnames and ensure they are 19 characters or less.
+    - name: Hostname verification failure
+      ansible.builtin.fail:
+        msg: "Hostname verification failed for one or more ISE nodes. Check the hostnames and ensure they are 19 characters or less."
+
+- name: Assert all required variables for Azure ISE deployment
+  block:
+    - name: Assert all required variables for Azure ISE deployment
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: required_variables
+        defaults_from: az_required_vars_ise.yml
+  rescue:
+    - name: Webex Space notification for missing required variables
+      ansible.builtin.include_role:
+        name: tbl.webex_bot.webex_space
+      vars:
+        webex_action: "message"
+        webex_markdown: |
+          ### Deployment error at {{ now(fmt='%m/%d/%Y %h:%M:%S%p') }}.
+          One or more required variables for Azure ISE deployment are missing. Review the variable definitions and ensure all required variables are set.
+    - name: Required variables verification failure
+      ansible.builtin.fail:
+        msg: "One or more required variables for Azure ISE deployment are missing. Review the variable definitions and ensure all required variables are set."
+
+- name: Assert all required variables for Azure network infrastructure deployment
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: required_variables
+    defaults_from: az_required_vars_network_infrastructure.yml
+
+- name: "Replace underscores with hyphens in the az_resources_prefix string"
+  ansible.builtin.set_fact:
+    az_resources_prefix: "{{ az_resources_prefix | replace('_', '-') }}"
+
+- name: Set management subnet name for ISE deployment
+  ansible.builtin.set_fact:
+    az_ise_mgmt_subnet_name: >-
+      {{
+        (az_subnets
+          | selectattr('type', 'equalto', 'mgmt')
+          | map(attribute='name')
+          | list
+          | first)
+        | default(az_resources_prefix ~ '-subnet')
+      }}
+
+- name: "Prepare directory for results, path: {{ results_dir }}"
+  ansible.builtin.file:
+    path: "{{ results_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Network resources for ISE machines
+  ansible.builtin.include_tasks: azure_network_infrastructure.yml
+
+- name: Verify if inside specified VN there are already existing instances that match requested instances
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: az_existing_instances.yml
+  vars:
+    instances_marked_for_deployment: "{{ ise_nodes }}"
+
+- name: Define deployment facts
+  ansible.builtin.set_fact:
+    deployment_facts:
+      deployed_ise_nodes: []
+
+- name: Create VM instance - ISE VM using ARM deployment
+  ansible.builtin.include_tasks: azure_ise_vm_arm.yml
+  vars:
+    hostname: "{{ instance_item.hostname | replace('_', '-') }}"
+    ise_roles: "{{ instance_item.ise_roles | default('') }}"
+    ise_services: "{{ instance_item.ise_services | default('') }}"
+    disk_size: "{{ instance_item.disk_size | default(300) }}"
+  loop: "{{ ise_nodes }}"
+  loop_control:
+    loop_var: instance_item
+  when: ise_nodes is defined and (instance_item.hostname not in instances_info or not instances_info[instance_item.hostname])
+
+- name: Extract deployment facts
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: generate_deployment_facts_ise.yml
+  when: deployment_facts.deployed_ise_nodes | length > 0
+
+- name: Webex Space notification with deployment results
+  ansible.builtin.include_role:
+    name: tbl.webex_bot.webex_space
+  vars:
+    webex_action: "message"
+    webex_markdown: |
+      ### Deployment of ISE nodes in Azure (ARM deployment) has completed at {{ now(fmt='%m/%d/%Y %h:%M:%S%p') }}.
+
+      ```
+      {{ deployment_facts.deployed_ise_nodes | to_nice_json }}
+      ```
+
+- name: Check reachability of ISE nodes with SSH probe
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: wait_for_ssh_readiness
+  vars:
+    ssh_readiness_delay: 10
+    ssh_readiness_timeout: 600
+    ssh_readiness_instances: "{{ deployment_facts.deployed_ise_nodes }}"
+
+- name: Webex Space notification
+  ansible.builtin.include_role:
+    name: tbl.webex_bot.webex_space
+  vars:
+    webex_action: "message"
+    webex_markdown: |
+      ### SSH readiness of ISE nodes in Azure is confirmed at {{ now(fmt='%m/%d/%Y %h:%M:%S%p') }}.

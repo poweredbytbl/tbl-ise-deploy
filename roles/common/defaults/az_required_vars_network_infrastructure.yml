@@ -1,0 +1,7 @@
+---
+
+required_variables:
+  organization_name: "{{ organization_name }}"
+  az_location: "{{ az_location }}"
+  az_subnets: "{{ az_subnets }}"
+  az_allowed_subnets: "{{ az_allowed_subnets }}"

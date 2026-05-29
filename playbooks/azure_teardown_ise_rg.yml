@@ -1,0 +1,10 @@
+---
+- name: Teardown Cisco SD-WAN resources on Azure
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    ../vars/azure_ise_config.yml
+  roles:
+    - role: azure_teardown
+      vars:
+        teardown_task: 'rg'

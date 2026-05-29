@@ -1,0 +1,9 @@
+---
+collections:
+  - name: azure.azcollection
+    version: ">=3.5.0"
+  - name: cisco.ise
+    version: ">=3.2.0"
+  - name: tbl.webex_bot
+    source: https://github.com/poweredbytbl/tbl-webex-bot.git
+    type: git

@@ -1,0 +1,18 @@
+---
+- name: Test deploy Cisco ISE node(s) on Azure with ARM deployment role
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  pre_tasks:
+    - name: Resolve/create Webex space once
+      ansible.builtin.include_role:
+        name: tbl.webex_bot.webex_space
+      vars:
+        webex_bot_token: "{{ lookup('ansible.builtin.env', 'WEBEX_BOT_TOKEN') }}"
+        webex_space_title: "Ansible ISE Deployment POC"
+        webex_participants:
+          - dcantwell@tblnetworks.com
+  vars_files:
+    - ../vars/azure_ise_config.yml
+  roles:
+    - azure_ise_arm

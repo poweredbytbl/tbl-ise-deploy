@@ -1,0 +1,116 @@
+---
+
+- name: Retrieve specific VM details
+  azure.azcollection.azure_rm_virtualmachine_info:
+    resource_group: "{{ az_resource_group }}"
+  register: az_instance_info
+
+- name: Print VM all facts
+  ansible.builtin.debug:
+    var: az_instance_info
+
+- name: Initialize instances_info dictionary
+  ansible.builtin.set_fact:
+    instances_info_map: {}
+    instances_info: []
+
+- name: Retrieve NIC details for each VM
+  azure.azcollection.azure_rm_networkinterface_info:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ nic_lookup_item.1 }}"
+  loop: "{{ query('subelements', az_instance_info.vms | default([]), 'network_interface_names', {'skip_missing': True}) }}"
+  loop_control:
+    loop_var: nic_lookup_item
+    label: "{{ nic_lookup_item.0.name }} -> {{ nic_lookup_item.1 }}"
+  register: az_nic_info_results
+
+- name: Retrieve public IP details for the resource group
+  azure.azcollection.azure_rm_publicipaddress_info:
+    resource_group: "{{ az_resource_group }}"
+  register: az_public_ip_info_results
+
+- name: Verify if there are instances with requested parameters already present
+  when: az_instance_info is defined and az_instance_info.vms | length > 0
+  block:
+    - name: Set instance status and state, variable 'instances_info' will hold list of existing instances
+      ansible.builtin.set_fact:
+        instances_info_map: >-
+          {{
+            (instances_info_map | default({}))
+            | combine({
+                vm_item.name: {
+                  'name': vm_item.name,
+                  'location': vm_item.location,
+                  'nics': vm_nics,
+                  'os_disk_name': vm_item.os_disk.name,
+                  'power_state': vm_item.power_state,
+                  'resource_group': vm_item.resource_group,
+                  'image': vm_item.image,
+                  'tags': vm_item.tags,
+                  'vm_size': vm_item.vm_size
+                }
+              })
+          }}
+      vars:
+        nic_result: >-
+          {{
+            (
+              az_nic_info_results.results
+              | default([])
+              | selectattr('nic_lookup_item.0.name', 'equalto', vm_item.name)
+              | list
+            )
+          }}
+        vm_nics: >-
+          {%- set ns = namespace(nics=[]) -%}
+          {%- for nic_entry in nic_result -%}
+          {%- set nic_info = nic_entry.networkinterfaces[0] if nic_entry.networkinterfaces | default([]) | length > 0 else {} -%}
+          {%- set primary_ip_config = (
+                nic_info.ip_configurations | default([])
+                | selectattr('primary', 'defined')
+                | selectattr('primary')
+                | list
+                | first
+                | default((nic_info.ip_configurations | default([]) | first), true)
+              ) -%}
+          {%- set public_ip_name = (
+                primary_ip_config.public_ip_address | split('/') | last
+              ) if (
+                primary_ip_config is mapping
+                and primary_ip_config.public_ip_address is defined
+                and primary_ip_config.public_ip_address is not none
+                and primary_ip_config.public_ip_address | string | length > 0
+              ) else None -%}
+          {%- set public_ip = (
+                az_public_ip_info_results.publicipaddresses
+                | default([])
+                | selectattr('name', 'equalto', public_ip_name | default(''))
+                | list
+                | first
+                | default({})
+              ) -%}
+          {%- set _ = ns.nics.append({
+                'name': nic_info.name | default(nic_entry.nic_lookup_item.1),
+                'nic_subnet': nic_info.subnet | default(None),
+                'private_ip_address': (
+                  primary_ip_config.private_ip_address | default(None)
+                  if primary_ip_config is mapping
+                  else None
+                ),
+                'public_ip_address_name': public_ip_name,
+                'public_ip_address': public_ip.ip_address | default(None)
+              }) -%}
+          {%- endfor -%}
+          {{ ns.nics }}
+      loop: "{{ az_instance_info.vms }}"
+      loop_control:
+        loop_var: vm_item
+      no_log: true
+
+- name: Convert instances_info map to list
+  ansible.builtin.set_fact:
+    instances_info: "{{ instances_info_map | default({}) | dict2items | map(attribute='value') | list }}"
+
+- name: Print azure instance info
+  ansible.builtin.debug:
+    var: instances_info

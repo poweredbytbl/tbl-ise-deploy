@@ -1,0 +1,61 @@
+---
+- name: Create resource group
+  azure.azcollection.azure_rm_resourcegroup:
+    name: "{{ az_resource_group }}"
+    location: "{{ az_location }}"
+    tags:
+      Name: "{{ az_resource_group }}"
+      Creator: "{{ az_tag_creator }}"
+      Organization: "{{ organization_name }}"
+
+- name: Create virtual network
+  azure.azcollection.azure_rm_virtualnetwork:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ az_virtual_network }}"
+    address_prefixes: "{{ az_vn_address_prefixes_cidr }}"
+    tags:
+      Name: "{{ az_virtual_network }}"
+      Creator: "{{ az_tag_creator }}"
+      Organization: "{{ organization_name }}"
+
+- name: Create Network Security Group
+  azure.azcollection.azure_rm_securitygroup:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ az_network_security_group }}"
+    rules:
+      - name: DenySSH
+        protocol: Tcp
+        destination_port_range: 22-23
+        access: Deny
+        priority: 4000
+        direction: Inbound
+      - name: AllowExternalManagement
+        protocol: Tcp
+        destination_port_range:
+          - 22
+          - 443
+          - 8443
+        source_address_prefix: "{{ az_allowed_subnets }}"
+        access: Allow
+        priority: 1001
+        direction: Inbound
+      - name: ICMP
+        protocol: Icmp
+        source_address_prefix: "{{ az_allowed_subnets }}"
+        access: Allow
+        priority: 1002
+    tags:
+      Name: "{{ az_network_security_group }}"
+      Creator: "{{ az_tag_creator }}"
+      Organization: "{{ organization_name }}"
+
+- name: Create subnets inside virtual network
+  azure.azcollection.azure_rm_subnet:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ subnet_item.name }}"
+    address_prefixes_cidr: "{{ subnet_item.cidr }}"
+    virtual_network: "{{ az_virtual_network }}"
+    security_group: "{{ (subnet_item.type == 'service') | ternary(omit, az_network_security_group) }}"
+  loop: "{{ az_subnets }}"
+  loop_control:
+    loop_var: subnet_item

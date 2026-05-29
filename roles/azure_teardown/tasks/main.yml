@@ -1,0 +1,22 @@
+- name: Verify if user session with Azure is active
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: az_user_session_probe
+  when: not (az_user_session_validated | default(false))
+
+- name: Replace underscores with hyphens in the az_resources_prefix string
+  ansible.builtin.set_fact:
+    az_resources_prefix: "{{ az_resources_prefix | replace('_', '-') }}"
+
+- name: Remove Azure Resource Group and wait for teardown completion
+  ansible.builtin.include_tasks: az_teardown_rg.yml
+  when: teardown_task == 'rg'
+
+- name: Remove Azure Virtual Machine and wait for teardown completion
+  ansible.builtin.include_tasks: az_teardown_vm.yml
+  vars:
+    hostname: "{{ instance_item.hostname | replace('_', '-') }}"
+  loop: "{{ ise_nodes }}"
+  loop_control:
+    loop_var: instance_item
+  when: teardown_task == 'vm' and ise_nodes is defined

@@ -1,0 +1,302 @@
+---
+- name: Deploy Azure infrastructure and ISE VMs with a single ARM deployment task
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files:
+    - ../vars/azure_ise_config.yml
+  vars:
+    arm_deployment_name: "{{ az_resources_prefix | lower | replace('_', '-') }}-single-task"
+  tasks:
+    - name: Deploy resource group, network, and ISE VMs in one ARM deployment
+      azure.azcollection.azure_rm_deployment:
+        state: present
+        resource_group: "{{ az_resource_group }}"
+        location: "{{ az_location }}"
+        name: "{{ arm_deployment_name }}"
+        deployment_mode: incremental
+        template:
+          $schema: https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#
+          contentVersion: 1.0.0.0
+          parameters:
+            location:
+              type: string
+            organizationName:
+              type: string
+            creatorTag:
+              type: string
+            virtualNetworkName:
+              type: string
+            virtualNetworkAddressSpace:
+              type: string
+            networkSecurityGroupName:
+              type: string
+            allowedSubnets:
+              type: array
+            subnets:
+              type: array
+            nodes:
+              type: array
+            adminUsername:
+              type: string
+            adminPassword:
+              type: secureString
+            sshPublicKey:
+              type: string
+            vmSize:
+              type: string
+            managedDiskType:
+              type: string
+            imageOffer:
+              type: string
+            imagePublisher:
+              type: string
+            imageSku:
+              type: string
+            imageVersion:
+              type: string
+            primaryNameServer:
+              type: string
+            dnsDomain:
+              type: string
+            primaryNtpServer:
+              type: string
+            timeZone:
+              type: string
+            ersApi:
+              type: string
+            pxGrid:
+              type: string
+            pxGridCloud:
+              type: string
+          resources:
+            - type: Microsoft.Network/virtualNetworks
+              apiVersion: 2023-09-01
+              name: "[parameters('virtualNetworkName')]"
+              location: "[parameters('location')]"
+              properties:
+                addressSpace:
+                  addressPrefixes:
+                    - "[parameters('virtualNetworkAddressSpace')]"
+              tags:
+                Name: "[parameters('virtualNetworkName')]"
+                Creator: "[parameters('creatorTag')]"
+                Organization: "[parameters('organizationName')]"
+
+            - type: Microsoft.Network/networkSecurityGroups
+              apiVersion: 2023-09-01
+              name: "[parameters('networkSecurityGroupName')]"
+              location: "[parameters('location')]"
+              properties:
+                securityRules:
+                  - name: DenySSH
+                    properties:
+                      protocol: Tcp
+                      sourcePortRange: "*"
+                      destinationPortRanges:
+                        - "22"
+                        - "23"
+                      sourceAddressPrefix: "*"
+                      destinationAddressPrefix: "*"
+                      access: Deny
+                      priority: 4000
+                      direction: Inbound
+                  - name: AllowExternalManagement
+                    properties:
+                      protocol: Tcp
+                      sourcePortRange: "*"
+                      destinationPortRanges:
+                        - "22"
+                        - "443"
+                        - "8443"
+                      sourceAddressPrefixes: "[parameters('allowedSubnets')]"
+                      destinationAddressPrefix: "*"
+                      access: Allow
+                      priority: 1001
+                      direction: Inbound
+                  - name: ICMP
+                    properties:
+                      protocol: Icmp
+                      sourcePortRange: "*"
+                      destinationPortRange: "*"
+                      sourceAddressPrefixes: "[parameters('allowedSubnets')]"
+                      destinationAddressPrefix: "*"
+                      access: Allow
+                      priority: 1002
+                      direction: Inbound
+              tags:
+                Name: "[parameters('networkSecurityGroupName')]"
+                Creator: "[parameters('creatorTag')]"
+                Organization: "[parameters('organizationName')]"
+
+            - type: Microsoft.Network/virtualNetworks/subnets
+              apiVersion: 2023-09-01
+              name: "[format('{0}/{1}', parameters('virtualNetworkName'), parameters('subnets')[copyIndex('subnetLoop')].name)]"
+              copy:
+                name: subnetLoop
+                count: "[length(parameters('subnets'))]"
+              dependsOn:
+                - "[resourceId('Microsoft.Network/virtualNetworks', parameters('virtualNetworkName'))]"
+                - "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroupName'))]"
+              properties:
+                addressPrefix: "[parameters('subnets')[copyIndex('subnetLoop')].cidr]"
+                networkSecurityGroup:
+                  id: >-
+                    [if(equals(parameters('subnets')[copyIndex('subnetLoop')].type,
+                    'service'), json('null'),
+                    resourceId('Microsoft.Network/networkSecurityGroups',
+                    parameters('networkSecurityGroupName')))]
+
+            - type: Microsoft.Network/publicIPAddresses
+              apiVersion: 2023-09-01
+              name: "[format('{0}-public-ip', parameters('nodes')[copyIndex('publicIpLoop')].hostname)]"
+              copy:
+                name: publicIpLoop
+                count: "[length(parameters('nodes'))]"
+              location: "[parameters('location')]"
+              sku:
+                name: Standard
+              properties:
+                publicIPAllocationMethod: Static
+              tags:
+                Name: "[format('{0}-public-ip', parameters('nodes')[copyIndex('publicIpLoop')].hostname)]"
+                Creator: "[parameters('creatorTag')]"
+                Machine: "[parameters('nodes')[copyIndex('publicIpLoop')].hostname]"
+                Subnet: "[parameters('subnets')[0].name]"
+
+            - type: Microsoft.Network/networkInterfaces
+              apiVersion: 2023-09-01
+              name: "[format('{0}-nic', parameters('nodes')[copyIndex('nicLoop')].hostname)]"
+              copy:
+                name: nicLoop
+                count: "[length(parameters('nodes'))]"
+              location: "[parameters('location')]"
+              dependsOn:
+                - "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-public-ip', parameters('nodes')[copyIndex('nicLoop')].hostname))]"
+                - "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('virtualNetworkName'), parameters('subnets')[0].name)]"
+              properties:
+                ipConfigurations:
+                  - name: ipconfig-ise-node
+                    properties:
+                      privateIPAllocationMethod: Dynamic
+                      subnet:
+                        id: "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('virtualNetworkName'), parameters('subnets')[0].name)]"
+                      publicIPAddress:
+                        id: "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-public-ip', parameters('nodes')[copyIndex('nicLoop')].hostname))]"
+              tags:
+                Name: "[format('{0}-nic', parameters('nodes')[copyIndex('nicLoop')].hostname)]"
+                Creator: "[parameters('creatorTag')]"
+                Organization: "[parameters('organizationName')]"
+
+            - type: Microsoft.Compute/virtualMachines
+              apiVersion: 2023-09-01
+              name: "[parameters('nodes')[copyIndex('vmLoop')].hostname]"
+              copy:
+                name: vmLoop
+                count: "[length(parameters('nodes'))]"
+              location: "[parameters('location')]"
+              dependsOn:
+                - "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('nodes')[copyIndex('vmLoop')].hostname))]"
+              plan:
+                name: "[parameters('imageSku')]"
+                product: "[parameters('imageOffer')]"
+                publisher: "[parameters('imagePublisher')]"
+              properties:
+                hardwareProfile:
+                  vmSize: "[parameters('vmSize')]"
+                osProfile:
+                  computerName: "[parameters('nodes')[copyIndex('vmLoop')].hostname]"
+                  adminUsername: "[parameters('adminUsername')]"
+                  adminPassword: "[parameters('adminPassword')]"
+                  linuxConfiguration:
+                    disablePasswordAuthentication: false
+                    ssh:
+                      publicKeys:
+                        - path: "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]"
+                          keyData: "[parameters('sshPublicKey')]"
+                  userData: >-
+                    [base64(format('hostname={0}\nprimarynameserver={1}\ndnsdomain={2}\nprimaryntpserver={3}\ntimezone={4}\nusername={5}\npassword={6}\nersapi={7}\npxGrid={8}\npxgrid_cloud={9}',
+                    parameters('nodes')[copyIndex('vmLoop')].hostname,
+                    parameters('primaryNameServer'), parameters('dnsDomain'),
+                    parameters('primaryNtpServer'), parameters('timeZone'),
+                    parameters('adminUsername'),
+                    parameters('adminPassword'), parameters('ersApi'),
+                    parameters('pxGrid'), parameters('pxGridCloud')))]
+                storageProfile:
+                  imageReference:
+                    offer: "[parameters('imageOffer')]"
+                    publisher: "[parameters('imagePublisher')]"
+                    sku: "[parameters('imageSku')]"
+                    version: "[parameters('imageVersion')]"
+                  osDisk:
+                    name: "[format('{0}-os-disk', parameters('nodes')[copyIndex('vmLoop')].hostname)]"
+                    createOption: FromImage
+                    caching: ReadWrite
+                    diskSizeGB: "[parameters('nodes')[copyIndex('vmLoop')].disk_size]"
+                    managedDisk:
+                      storageAccountType: "[parameters('managedDiskType')]"
+                networkProfile:
+                  networkInterfaces:
+                    - id: "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('nodes')[copyIndex('vmLoop')].hostname))]"
+                      properties:
+                        primary: true
+                diagnosticsProfile:
+                  bootDiagnostics:
+                    enabled: true
+              tags:
+                Name: "[parameters('nodes')[copyIndex('vmLoop')].hostname]"
+                Creator: "[parameters('creatorTag')]"
+                Organization: "[parameters('organizationName')]"
+                Roles: "[coalesce(parameters('nodes')[copyIndex('vmLoop')].ise_roles, '')]"
+                Services: "[coalesce(parameters('nodes')[copyIndex('vmLoop')].ise_services, '')]"
+        parameters:
+          location:
+            value: "{{ az_location }}"
+          organizationName:
+            value: "{{ organization_name }}"
+          creatorTag:
+            value: "{{ az_tag_creator }}"
+          virtualNetworkName:
+            value: "{{ az_virtual_network }}"
+          virtualNetworkAddressSpace:
+            value: "{{ az_vn_address_prefixes_cidr }}"
+          networkSecurityGroupName:
+            value: "{{ az_network_security_group }}"
+          allowedSubnets:
+            value: "{{ az_allowed_subnets }}"
+          subnets:
+            value: "{{ az_subnets }}"
+          nodes:
+            value: "{{ ise_nodes }}"
+          adminUsername:
+            value: "{{ username }}"
+          adminPassword:
+            value: "{{ password }}"
+          sshPublicKey:
+            value: "{{ az_ssh_key_data }}"
+          vmSize:
+            value: "{{ az_ise_vm_size }}"
+          managedDiskType:
+            value: "{{ az_managed_disk_type }}"
+          imageOffer:
+            value: "{{ az_ise_image_offer }}"
+          imagePublisher:
+            value: "{{ az_ise_image_publisher }}"
+          imageSku:
+            value: "{{ az_ise_image_sku }}"
+          imageVersion:
+            value: "{{ az_ise_image_version }}"
+          primaryNameServer:
+            value: "{{ primarynameserver }}"
+          dnsDomain:
+            value: "{{ dnsdomain }}"
+          primaryNtpServer:
+            value: "{{ primaryntpserver }}"
+          timeZone:
+            value: "{{ timezone }}"
+          ersApi:
+            value: "{{ ersapi }}"
+          pxGrid:
+            value: "{{ pxgrid }}"
+          pxGridCloud:
+            value: "{{ pxgrid_cloud }}"

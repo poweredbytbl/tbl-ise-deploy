@@ -1,0 +1,132 @@
+import datetime
+import time
+import requests
+import json
+import os
+import logging
+import azure.functions as func
+from azure.appconfiguration import AzureAppConfigurationClient
+
+# Global variables
+API_AUTH = None
+API_HEADER = None
+primary_fqdn = None
+admin_username = None
+admin_password = None
+primary_ip = None
+function_url = None
+psn_fqdn = None
+secondary_fqdn = None
+
+
+# Function to initialize global variables
+def initialize_globals():
+    global API_AUTH, API_HEADER, primary_fqdn, secondary_fqdn, admin_username, admin_password, primary_ip, secondary_ip, function_url, psn_fqdn
+    if API_AUTH is None:
+        app_config_connection_string = os.environ['AppConfigConnectionString']  # Azure App Configuration connection string
+        config_client = AzureAppConfigurationClient.from_connection_string(app_config_connection_string)
+
+        admin_username = get_app_config_parameter(config_client, "admin_username")
+        admin_password = get_app_config_parameter(config_client,"admin_password")  # Ensure this parameter is stored securely
+
+        API_AUTH = (admin_username, admin_password)
+        API_HEADER = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+
+        primary_fqdn = get_app_config_parameter(config_client, "primary_fqdn")
+        primary_ip = get_app_config_parameter(config_client, "primary_ip")
+        secondary_fqdn = get_app_config_parameter(config_client, "secondary_fqdn")
+        function_url = get_app_config_parameter(config_client, "function_url")
+
+        label = "psn_fqdn"
+        all_settings = list(config_client.list_configuration_settings())
+        psn_fqdn = [setting.value for setting in all_settings if setting.label and label in setting.label]
+
+
+# Function to get an app config parameter
+def get_app_config_parameter(config_client, key):
+    try:
+        value = config_client.get_configuration_setting(key).value
+        return value
+    except Exception as e:
+        raise Exception(f"Error getting '{{key}}' from App Configuration: {str(e)}")
+
+def configure_nodes():
+    # Ensure that the globals are initialized
+    initialize_globals()
+
+    data = {}
+    url = f'https://{primary_ip}/api/v1/deployment/node'
+    try:
+        resp = requests.get(url, headers=API_HEADER, auth=API_AUTH, data=json.dumps(data), verify=False)
+        logging.info(f'API response for {primary_ip} is {resp.text}')
+        if resp.status_code == 200:
+            node_info = resp.json()
+            node_status = node_info['response'][0]['nodeStatus']
+            node_role = node_info['response'][0]['roles']
+            node_fqdn = node_info['response'][0]['fqdn']
+
+            if node_status == "Connected" and "Standalone" in node_role and node_fqdn == primary_fqdn:
+                logging.info(f'ISE - {primary_ip} meets the conditions for setting as primary, active role {node_role}')
+                ExecuteFunction = requests.get(function_url)
+                logging.info(f'API response for {function_url} is {ExecuteFunction.text}')
+
+            else:
+                logging.info(f'ISE - {primary_ip} does not meet the conditions for executing the HTTP Trigger function')
+                if resp.status_code == 200:
+                    json_resp = json.loads(resp.content.decode("utf-8"))
+                    connected_node = 0
+                    for node in json_resp["response"]:
+                        if node['nodeStatus'] == "Connected":
+                            logging.info("SyncStatus success for: '%s'", node["hostname"])
+                            connected_node += 1
+                        elif node['nodeStatus'] == "RegistrationFailed":
+                            logging.info("Sync failed for: '%s'", node["hostname"])
+                        else:
+                            logging.info("Sync In Progress")
+                        if connected_node == len(json_resp["response"]):
+                            logging.info("SYNC_COMPLETED")
+        else:
+            logging.info(f'ISE - {primary_ip} is not reachable or returned a non-200 status code')
+
+    except Exception as e:
+        logging.error(f'Exception: {e}', exc_info=True)
+        logging.error(f'Exception occurred while executing get node details API for {primary_ip}')
+        retries -= 1
+
+
+def main(mytimer: func.TimerRequest) -> None:
+    utc_timestamp = datetime.datetime.utcnow().replace(
+        tzinfo=datetime.timezone.utc).isoformat()
+
+    if mytimer.past_due:
+        logging.info('The timer is past due!')
+
+    logging.info('Python timer trigger function ran at %s', utc_timestamp)
+
+    initialize_globals()
+
+    nodes_to_check = [primary_fqdn, secondary_fqdn] + psn_fqdn
+    nodes_available = set()
+    checked_hosts = set()
+    for node in nodes_to_check:
+        if node not in checked_hosts:
+            url = f"https://{node}/api/v1/deployment/node"
+            response = requests.get(url, headers=API_HEADER, auth=API_AUTH, verify=False)
+            checked_hosts.add(node)
+        if response.status_code == 200:
+            logging.info(f"Node {node} is Up and running")
+            nodes_available.add(node)
+    logging.info(f"Available Hosts: {','.join(nodes_available)}")
+        # else:
+        #     logger.info(f"Node {node} is not reachable")
+
+    if len(nodes_to_check) == len(nodes_available):
+        logging.info("All the ISE nodes are available! Triggering configure_nodes function to configure all the nodes")
+        configure_nodes()
+    else:
+        unavailable_nodes = set(nodes_to_check) - nodes_available
+        logging.info(f"Unavailable Hosts: {','.join(unavailable_nodes)}")
+
+# Call the main function for the Azure Function
+if __name__ == "__main__":
+    main(func.TimerRequest())

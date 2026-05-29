@@ -1,0 +1,40 @@
+- name: Webex Space notification for beginning of ISE Azure network infrastructure creation
+  ansible.builtin.include_role:
+    name: tbl.webex_bot.webex_space
+  vars:
+    webex_action: "message"
+    webex_markdown: |
+      ### ISE Azure network infrastructure creation has begun at {{ now(fmt='%m/%d/%Y %h:%M:%S%p') }}.
+
+- name: "Verify if user session with Azure is active"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: az_user_session_probe
+  when: not (az_user_session_validated | default(false))
+
+- name: "Assert all required variables for Azure network infrastructure deployment"
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: required_variables
+    defaults_from: az_required_vars_network_infrastructure.yml
+
+- name: "Replace underscores with hyphens in the az_resources_prefix string"
+  ansible.builtin.set_fact:
+    az_resources_prefix: "{{ az_resources_prefix | replace('_', '-') }}"
+
+- name: "Prepare directory for results, path: {{ results_dir }}"
+  ansible.builtin.file:
+    path: "{{ results_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: "Network resources for SD-WAN machines"
+  ansible.builtin.include_tasks: azure_network_infrastructure.yml
+
+- name: Webex Space notification for completion of ISE Azure network infrastructure creation
+  ansible.builtin.include_role:
+    name: tbl.webex_bot.webex_space
+  vars:
+    webex_action: "message"
+    webex_markdown: |
+      ### ISE Azure network infrastructure creation has completed at {{ now(fmt='%m/%d/%Y %h:%M:%S%p') }}.

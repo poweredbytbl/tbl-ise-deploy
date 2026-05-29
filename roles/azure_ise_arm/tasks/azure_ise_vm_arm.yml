@@ -1,0 +1,207 @@
+---
+- name: Create Public IP
+  azure.azcollection.azure_rm_publicipaddress:
+    resource_group: "{{ az_resource_group }}"
+    allocation_method: Static
+    sku: standard
+    name: "{{ hostname }}-public-ip"
+    tags:
+      Name: "{{ hostname }}-public-ip"
+      Creator: "{{ az_tag_creator }}"
+      Machine: "{{ hostname }}"
+      Subnet: "{{ az_ise_mgmt_subnet_name }}"
+  register: public_ip_address
+
+- name: Create virtual network interface cards
+  azure.azcollection.azure_rm_networkinterface:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ hostname }}-nic"
+    virtual_network: "{{ az_virtual_network }}"
+    subnet_name: "{{ az_ise_mgmt_subnet_name }}"
+    create_with_security_group: false
+    ip_configurations:
+      - name: "ipconfig-ise-node"
+        public_ip_address_name: "{{ public_ip_address.state.name }}"
+        private_ip_allocation_method: "Dynamic"
+    tags:
+      Name: "{{ hostname }}-nic"
+      Creator: "{{ az_tag_creator }}"
+      Organization: "{{ organization_name }}"
+  register: ise_nic
+
+- name: Set path for bootstrap configuration
+  ansible.builtin.set_fact:
+    generated_userdata_ise: "{{ userdata_ise_path }}-{{ hostname }}"
+  changed_when: true
+
+- name: Template userdata file for ISE
+  ansible.builtin.template:
+    src: ./templates/userdata_ise.j2
+    dest: "{{ generated_userdata_ise }}"
+    mode: "0644"
+
+- name: Deploy ISE Virtual Machine using ARM deployment
+  azure.azcollection.azure_rm_deployment:
+    state: present
+    resource_group_name: "{{ az_resource_group }}"
+    location: "{{ az_location }}"
+    name: "{{ hostname }}-ise-vm-deployment"
+    template:
+      $schema: https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#
+      contentVersion: 1.0.0.0
+      parameters:
+        vmName:
+          type: string
+        vmSize:
+          type: string
+        adminUsername:
+          type: string
+        adminPassword:
+          type: secureString
+        nicId:
+          type: string
+        location:
+          type: string
+        osDiskName:
+          type: string
+        osDiskSizeGB:
+          type: int
+        imageOffer:
+          type: string
+        imagePublisher:
+          type: string
+        imageSku:
+          type: string
+        imageVersion:
+          type: string
+        managedDiskType:
+          type: string
+        customData:
+          type: string
+        tagCreator:
+          type: string
+        tagOrganization:
+          type: string
+        tagRoles:
+          type: string
+        tagServices:
+          type: string
+      resources:
+        - type: Microsoft.Compute/virtualMachines
+          apiVersion: 2023-09-01
+          name: "[parameters('vmName')]"
+          location: "[parameters('location')]"
+          plan:
+            name: "[parameters('imageSku')]"
+            product: "[parameters('imageOffer')]"
+            publisher: "[parameters('imagePublisher')]"
+          properties:
+            hardwareProfile:
+              vmSize: "[parameters('vmSize')]"
+            osProfile:
+              computerName: "[parameters('vmName')]"
+              adminUsername: "[parameters('adminUsername')]"
+              adminPassword: "[parameters('adminPassword')]"
+              linuxConfiguration:
+                disablePasswordAuthentication: false
+                ssh:
+                  publicKeys:
+                    - path: "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]"
+                      keyData: "{{ az_ssh_key_data }}"
+              customData: "[parameters('customData')]"
+            storageProfile:
+              imageReference:
+                publisher: "[parameters('imagePublisher')]"
+                offer: "[parameters('imageOffer')]"
+                sku: "[parameters('imageSku')]"
+                version: "[parameters('imageVersion')]"
+              osDisk:
+                name: "[parameters('osDiskName')]"
+                createOption: FromImage
+                diskSizeGB: "[parameters('osDiskSizeGB')]"
+                caching: ReadWrite
+                managedDisk:
+                  storageAccountType: "[parameters('managedDiskType')]"
+            networkProfile:
+              networkInterfaces:
+                - id: "[parameters('nicId')]"
+                  properties:
+                    primary: true
+            diagnosticsProfile:
+              bootDiagnostics:
+                enabled: true
+          tags:
+            Name: "[parameters('vmName')]"
+            Creator: "[parameters('tagCreator')]"
+            Organization: "[parameters('tagOrganization')]"
+            Roles: "[parameters('tagRoles')]"
+            Services: "[parameters('tagServices')]"
+    parameters:
+      vmName:
+        value: "{{ hostname }}"
+      vmSize:
+        value: "{{ az_ise_vm_size }}"
+      adminUsername:
+        value: "{{ username }}"
+      adminPassword:
+        value: "{{ password }}"
+      nicId:
+        value: "{{ ise_nic.state.id }}"
+      location:
+        value: "{{ az_location }}"
+      osDiskName:
+        value: "{{ hostname }}-os-disk"
+      osDiskSizeGB:
+        value: "{{ disk_size | int }}"
+      imageOffer:
+        value: "{{ az_ise_image_offer }}"
+      imagePublisher:
+        value: "{{ az_ise_image_publisher }}"
+      imageSku:
+        value: "{{ az_ise_image_sku }}"
+      imageVersion:
+        value: "{{ az_ise_image_version }}"
+      managedDiskType:
+        value: "{{ az_managed_disk_type }}"
+      customData:
+        value: "{{ lookup('file', generated_userdata_ise) | b64encode }}"
+      tagCreator:
+        value: "{{ az_tag_creator }}"
+      tagOrganization:
+        value: "{{ organization_name }}"
+      tagRoles:
+        value: "{{ ise_roles }}"
+      tagServices:
+        value: "{{ ise_services }}"
+
+- name: Get refreshed network interface details
+  azure.azcollection.azure_rm_networkinterface_info:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ hostname }}-nic"
+  register: ise_nic_info
+
+- name: Get refreshed public IP details
+  azure.azcollection.azure_rm_publicipaddress_info:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ hostname }}-public-ip"
+  register: public_ip_info
+
+- name: Store ISE Node instance details for deployment_results
+  ansible.builtin.set_fact:
+    instance:
+      hostname: "{{ hostname }}"
+      mgmt_ip: "{{ ise_nic_info.networkinterfaces[0].ip_configurations[0].private_ip_address }}"
+      admin_password: "{{ password }}"
+      mgmt_public_ip: "{{ public_ip_info.publicipaddresses[0].ip_address }}"
+  changed_when: true
+  notify: Show deployment_facts
+
+- name: Update deployment facts - ISE - that will be consumed by ISE-client in Ansible
+  ansible.builtin.set_fact:
+    deployment_facts:
+      deployed_ise_nodes: "{{ deployment_facts.deployed_ise_nodes + [instance] }}"
+
+- name: Remove userdata file
+  ansible.builtin.file:
+    path: "{{ generated_userdata_ise }}"
+    state: absent

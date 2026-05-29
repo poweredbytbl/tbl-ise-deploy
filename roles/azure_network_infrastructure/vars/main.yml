@@ -1,0 +1,4 @@
+---
+# vars/ are used by the role and not likely to be changed
+# Deployment results path
+results_dir: "{{ playbook_dir }}/results"

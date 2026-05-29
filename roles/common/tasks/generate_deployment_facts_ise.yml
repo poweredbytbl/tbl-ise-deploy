@@ -1,0 +1,22 @@
+---
+
+- name: Set results_path_ise
+  block:
+    - name: Get info about time
+      ansible.builtin.setup:
+        gather_subset:
+          - min
+    - name: Create path
+      ansible.builtin.set_fact:
+        results_path_ise: "{{ results_dir }}/deployment_facts_ise_{{ az_location }}_{{ ansible_date_time.iso8601 }}.yml"
+#  when: results_path_ise is not defined
+
+- name: Generate file {{ results_path_ise }} to store deployment facts
+  ansible.builtin.blockinfile:
+    create: true
+    state: present
+    mode: "0644"
+    insertafter: EOF
+    dest: "{{ results_path_ise }}"
+    marker: "# {mark} ansible generated data"
+    content: "{{ deployment_facts | to_nice_yaml(indent=2) }}"

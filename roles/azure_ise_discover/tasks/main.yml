@@ -1,0 +1,82 @@
+- name: Create Webex Space for Ansible ISE notifications
+  ansible.builtin.include_role:
+    name: tbl.webex_bot.webex_space
+  vars:
+    webex_action: "both"
+    webex_markdown: |
+      # 🧊 ISE Node Discovery 🧊
+      ### Discovery of existing ISE nodes in Azure has begun at {{ now(fmt='%m/%d/%Y %h:%M:%S%p') }}.
+
+- name: Verify if user session with Azure is active
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: az_user_session_probe
+  when: not (az_user_session_validated | default(false))
+
+- name: "Check if the value of hostname has length of 19 or less"
+  ansible.builtin.assert:
+    that:
+      - instance_item.hostname | length > 0
+      - instance_item.hostname | length <= 19
+    fail_msg: "Verification for hostname failed, wrong hostname: {{ instance_item.hostname }}"
+  loop: "{{ ise_nodes }}"
+  loop_control:
+    loop_var: instance_item
+    label: "{{ instance_item.hostname }}"
+
+- name: Assert all required variables for Azure ISE deployment
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: required_variables
+    defaults_from: az_required_vars_ise.yml
+
+- name: "Replace underscores with hyphens in the az_resources_prefix string"
+  ansible.builtin.set_fact:
+    az_resources_prefix: "{{ az_resources_prefix | replace('_', '-') }}"
+
+- name: "Prepare directory for results, path: {{ results_dir }}"
+  ansible.builtin.file:
+    path: "{{ results_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Verify current azure resource group virtual machines
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: az_existing_deployment.yml
+
+- name: Generate dynamic inventory from discovered ISE nodes
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: generate_inventory_ise.yml
+
+- name: Create Webex Space for Ansible ISE notifications
+  ansible.builtin.include_role:
+    name: tbl.webex_bot.webex_space
+  vars:
+    webex_action: "message"
+    webex_markdown: |
+      ### Discovery of existing ISE nodes in Azure has completed at {{ now(fmt='%m/%d/%Y %h:%M:%S%p') }}.
+
+      ```
+      {{ instances_info | to_nice_json }}
+      ```
+
+- name: Print azure deployed ise nodes info
+  ansible.builtin.debug:
+    var: instances_info
+
+# - name: Extract deployment facts
+#   ansible.builtin.include_role:
+#     name: common
+#     tasks_from: generate_deployment_facts_ise.yml
+#   when: deployment_facts.deployed_ise_nodes | length > 0
+
+# - name: Check reachability of ISE nodes with SSH probe
+#   ansible.builtin.include_role:
+#     name: common
+#     tasks_from: wait_for_ssh_readiness
+#   vars:
+#     ssh_readiness_delay: 10
+#     ssh_readiness_timeout: 600
+#     ssh_readiness_instances: "{{ deployment_facts.deployed_ise_nodes }}"

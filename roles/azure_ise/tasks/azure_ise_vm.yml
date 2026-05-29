@@ -1,0 +1,108 @@
+---
+- name: Create Public IP
+  azure.azcollection.azure_rm_publicipaddress:
+    resource_group: "{{ az_resource_group }}"
+    allocation_method: Static
+    sku: standard
+    name: "{{ hostname }}-public-ip"
+    tags:
+      Name: "{{ hostname }}-public-ip"
+      Creator: "{{ az_tag_creator }}"
+      Machine: "{{ hostname }}"
+      Subnet: "{{ az_resources_prefix }}-subnet"
+  register: public_ip_address
+
+- name: "Create virtual network interface cards"
+  azure.azcollection.azure_rm_networkinterface:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ hostname }}-nic"
+    virtual_network: "{{ az_virtual_network }}"
+    subnet_name: "{{ public_ip_address.state.tags.Subnet }}"
+    create_with_security_group: false
+    ip_configurations:
+      - name: "ipconfig-ise-node"
+        public_ip_address_name: "{{ public_ip_address.state.name }}"
+        private_ip_allocation_method: "Dynamic"
+    tags:
+      Name: "{{ hostname }}-nic"
+      Creator: "{{ az_tag_creator }}"
+      Organization: "{{ organization_name }}"
+  register: ise_nic
+
+- name: Set az_network_interface_ise fact with a list of interfaces for ISE
+  ansible.builtin.set_fact:
+    az_network_interface_ise: "{{ ise_nic.state }}"
+    az_public_ip_address_ise: "{{ public_ip_address.state }}"
+
+- name: Filter az_network_interface_ise for instance creation. Set az_mgmt_nic facts
+  ansible.builtin.set_fact:
+    az_mgmt_nic: "{{ az_network_interface_ise }}"
+    az_mgmt_public_ip: "{{ az_public_ip_address_ise }}"
+
+- name: "Set path for bootstrap configuration: {{ userdata_path }}-{{ hostname }}"
+  ansible.builtin.set_fact:
+    generated_userdata_ise: "{{ userdata_path }}-{{ hostname }}"
+  changed_when: true
+
+- name: "Template userdata file for ISE: {{ hostname }}"
+  ansible.builtin.template:
+    src: ./templates/userdata_ise.j2
+    dest: "{{ generated_userdata_ise }}"
+    mode: "0644"
+
+- name: Create ISE Virtual Machine
+  azure.azcollection.azure_rm_virtualmachine:
+    resource_group: "{{ az_resource_group }}"
+    name: "{{ hostname }}"
+    vm_size: "{{ az_ise_vm_size }}"
+    ssh_password_enabled: true
+    admin_username: "{{ username }}"
+    admin_password: "{{ password }}"
+    ssh_public_keys:
+      - path: "/home/{{ username }}/.ssh/authorized_keys"
+        key_data: "{{ az_ssh_key_data }}"
+    managed_disk_type: "{{ az_managed_disk_type }}"
+    os_disk_name: "{{ hostname }}-os-disk"
+    os_disk_size_gb: "{{ disk_size }}"
+    os_disk_caching: ReadWrite
+    network_interfaces: "{{ az_mgmt_nic.id }}"
+    image:
+      offer: "{{ az_ise_image_offer }}"
+      publisher: "{{ az_ise_image_publisher }}"
+      sku: "{{ az_ise_image_sku }}"
+      version: "{{ az_ise_image_version }}"
+    plan:
+      name: "{{ az_ise_image_sku }}"
+      product: "{{ az_ise_image_offer }}"
+      publisher: "{{ az_ise_image_publisher }}"
+    accept_terms: true
+    boot_diagnostics:
+      enabled: true
+      type: "managed"
+    tags:
+      Name: "{{ hostname }}"
+      Creator: "{{ az_tag_creator }}"
+      Organization: "{{ organization_name }}"
+      Roles: "{{ ise_roles }}"
+      Services: "{{ ise_services }}"
+    user_data: "{{ lookup('file', generated_userdata_ise) }}"
+
+- name: "Store ISE Node instance details for deployment_results"
+  ansible.builtin.set_fact:
+    instance:
+      hostname: "{{ hostname }}"
+      mgmt_ip: "{{ az_mgmt_nic.ip_configurations[0].private_ip_address }}"
+      admin_password: "{{ password }}"
+      mgmt_public_ip: "{{ az_mgmt_public_ip.ip_address }}"
+  changed_when: true
+  notify: Show deployment_facts
+
+- name: "Update deployment facts - ISE - that will be consumed by ISE-client in Ansible"
+  ansible.builtin.set_fact:
+    deployment_facts:
+      deployed_ise_nodes: "{{ deployment_facts.deployed_ise_nodes + [instance] }}"
+
+- name: Remove userdata file (delete file)
+  ansible.builtin.file:
+    path: "{{ generated_userdata_ise }}"
+    state: absent
