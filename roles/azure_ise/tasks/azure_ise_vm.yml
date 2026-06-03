@@ -4,9 +4,9 @@
     resource_group: "{{ az_resource_group }}"
     allocation_method: Static
     sku: standard
-    name: "{{ hostname }}-public-ip"
+    name: "pip-{{ resource_name }}"
     tags:
-      Name: "{{ hostname }}-public-ip"
+      Name: "pip-{{ resource_name }}"
       Creator: "{{ az_tag_creator }}"
       Machine: "{{ hostname }}"
       Subnet: "{{ az_ise_mgmt_subnet_name }}"
@@ -15,7 +15,7 @@
 - name: "Create virtual network interface cards"
   azure.azcollection.azure_rm_networkinterface:
     resource_group: "{{ az_resource_group }}"
-    name: "{{ hostname }}-nic"
+    name: "nic-{{ resource_name }}"
     virtual_network: "{{ az_virtual_network }}"
     subnet_name: "{{ az_ise_mgmt_subnet_name }}"
     create_with_security_group: false
@@ -24,7 +24,7 @@
         public_ip_address_name: "{{ public_ip_address.state.name }}"
         private_ip_allocation_method: "Dynamic"
     tags:
-      Name: "{{ hostname }}-nic"
+      Name: "nic-{{ resource_name }}"
       Creator: "{{ az_tag_creator }}"
       Organization: "{{ organization_name }}"
   register: ise_nic
@@ -53,7 +53,7 @@
 - name: Create ISE Virtual Machine
   azure.azcollection.azure_rm_virtualmachine:
     resource_group: "{{ az_resource_group }}"
-    name: "{{ hostname }}"
+    name: "{{ resource_name }}"
     vm_size: "{{ az_ise_vm_size }}"
     ssh_password_enabled: true
     admin_username: "{{ username }}"
@@ -62,7 +62,7 @@
       - path: "/home/{{ username }}/.ssh/authorized_keys"
         key_data: "{{ az_ssh_key_data }}"
     managed_disk_type: "{{ az_managed_disk_type }}"
-    os_disk_name: "{{ hostname }}-os-disk"
+    os_disk_name: "osdisk-{{ hostname }}"
     os_disk_size_gb: "{{ disk_size }}"
     os_disk_caching: ReadWrite
     network_interfaces: "{{ az_mgmt_nic.id }}"
@@ -80,7 +80,8 @@
       enabled: true
       type: "managed"
     tags:
-      Name: "{{ hostname }}"
+      Name: "{{ resource_name }}"
+      Hostname: "{{ hostname }}"
       Creator: "{{ az_tag_creator }}"
       Organization: "{{ organization_name }}"
       Roles: "{{ ise_roles }}"
@@ -91,6 +92,9 @@
   ansible.builtin.set_fact:
     instance:
       hostname: "{{ hostname }}"
+      resource_name: "{{ resource_name }}"
+      roles: "{{ ise_roles }}"
+      services: "{{ ise_services }}"
       mgmt_ip: "{{ az_mgmt_nic.ip_configurations[0].private_ip_address }}"
       admin_password: "{{ password }}"
       mgmt_public_ip: "{{ az_mgmt_public_ip.ip_address }}"

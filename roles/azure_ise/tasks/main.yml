@@ -70,7 +70,7 @@
           | map(attribute='name')
           | list
           | first)
-        | default(az_resources_prefix ~ '-subnet')
+        | default('sn-' ~ az_resources_prefix)
       }}
 
 - name: "Prepare directory for results, path: {{ results_dir }}"
@@ -95,6 +95,7 @@
   ansible.builtin.include_tasks: azure_ise_vm.yml
   vars:
     hostname: "{{ instance_item.hostname | replace('_', '-') }}"
+    resource_name: "{{ instance_item.resource_name | default('') }}"
     ise_roles: "{{ instance_item.ise_roles | default('') }}"
     ise_services: "{{ instance_item.ise_services | default('') }}"
     disk_size: "{{ instance_item.disk_size | default(300) }}"

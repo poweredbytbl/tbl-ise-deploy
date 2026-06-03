@@ -12,9 +12,11 @@ organization_name: "ISE-DEV Powered by TBL"
 #######################################
 
 az_location: eastus2  # e.g. eastus
-az_resources_prefix: "ISE-POC"
+az_location_abbreviation: eus2  # e.g. eastus
 az_cust_id: "TBLN"
-az_resource_group: "{{ az_cust_id | lower }}-{{ az_location }}-{{ az_resources_prefix | lower }}-rg"
+az_resource_prefix: "ISE"
+az_resource_name: "{{ az_cust_id | lower }}-{{ az_location_abbreviation | lower }}-{{ az_resource_prefix | lower }}"
+az_resource_group: "rg-{{ az_resource_name }}"
 az_tag_creator: "TBL PAM Ansible Automation"
 
 az_allowed_subnets:
@@ -31,19 +33,18 @@ userdata_path: "{{ results_dir }}/.user_data"
 #     ISE Network configuration     #
 #######################################
 
-az_virtual_network: "{{ az_resources_prefix }}-vn"
+az_virtual_network: "vnet-{{ az_resource_name }}"
 az_vn_address_prefixes_cidr: 198.18.0.0/24
 az_subnets:
-  - name: "{{ az_resources_prefix }}-mgmt-subnet"
+  - name: "sn-{{ az_resource_name }}"
     cidr: "198.18.0.0/27"
     type: mgmt
-  - name: "{{ az_resources_prefix }}-func-subnet"
+  - name: "sn-{{ az_resource_name }}-func"
     cidr: "198.18.0.64/27"
     type: func
 
 # Security group
-az_network_security_group: "{{ az_resources_prefix }}-nsg"
-
+az_network_security_group: "nsg-{{ az_resource_name }}"
 
 ######################################
 #     ISE System configuration       #
@@ -76,10 +77,13 @@ az_ise_image_sku: "cisco-ise_3_4"
 az_ise_image_version: "latest"
 
 ise_nodes:
-  - hostname: "ise-{{ az_location }}-n1"
-    ise_roles: "PrimaryAdmin"  # This will be the first node deployed, so it will be the primary admin node in the deployment.
+  - hostname: "{{ az_location_abbreviation | lower }}-{{ az_resource_prefix | lower }}-n1"
+    resource_name: "vm-{{ az_resource_name }}-n1"
+    ise_roles: "PrimaryAdmin, PrimaryMonitoring"  # This will be the first node deployed, so it will be the primary admin node in the deployment.
+    ise_services: "Session, Profiler, pxGrid"
     disk_size: 500
-  - hostname: "ise-{{ az_location }}-n2"
+  - hostname: "{{ az_location_abbreviation | lower }}-{{ az_resource_prefix | lower }}-n2"
+    resource_name: "vm-{{ az_resource_name }}-n2"
     ise_roles: "SecondaryAdmin, SecondaryMonitoring"
     ise_services: "Session, Profiler, pxGrid"
     disk_size: 500
