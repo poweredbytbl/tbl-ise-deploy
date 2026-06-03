@@ -1,0 +1,8 @@
+ansible
+ansible-lint
+packaging
+requests[security]
+xmltodict
+ciscoisesdk >= 2.4.4
+requests >= 2.25.1
+pymsalruntime>=0.17,<0.21
