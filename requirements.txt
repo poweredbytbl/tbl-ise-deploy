@@ -1,5 +1,4 @@
 ansible
-ansible-lint
 packaging
 requests[security]
 xmltodict
