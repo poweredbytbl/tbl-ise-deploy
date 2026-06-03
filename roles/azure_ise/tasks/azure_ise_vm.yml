@@ -9,7 +9,7 @@
       Name: "{{ hostname }}-public-ip"
       Creator: "{{ az_tag_creator }}"
       Machine: "{{ hostname }}"
-      Subnet: "{{ az_resources_prefix }}-subnet"
+      Subnet: "{{ az_ise_mgmt_subnet_name }}"
   register: public_ip_address
 
 - name: "Create virtual network interface cards"
@@ -17,7 +17,7 @@
     resource_group: "{{ az_resource_group }}"
     name: "{{ hostname }}-nic"
     virtual_network: "{{ az_virtual_network }}"
-    subnet_name: "{{ public_ip_address.state.tags.Subnet }}"
+    subnet_name: "{{ az_ise_mgmt_subnet_name }}"
     create_with_security_group: false
     ip_configurations:
       - name: "ipconfig-ise-node"
