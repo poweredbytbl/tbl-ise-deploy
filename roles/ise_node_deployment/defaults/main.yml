@@ -1,0 +1,32 @@
+# Variables common to all deployment types
+node_deployment_ise_deployment_type: small
+node_deployment_ise_base_hostname: ISE
+node_deployment_ise_username: admin
+node_deployment_ise_password: C1sco12345
+node_deployment_ise_domain: example.com
+node_deployment_ise_verify: false
+node_deployment_ise_version: 3.3_patch_1
+node_deployment_ise_single_request_timeout: 300
+node_deployment_ise_api_wait_timeout: 3600
+node_deployment_ise_api_wait_sleep: 30
+node_deployment_ise_api_retries: 60
+node_deployment_ise_api_retry_delay: 30
+node_deployment_pan1_ip: ""
+node_deployment_pan2_ip: ""
+node_deployment_pan2_local_ip: ""
+node_deployment_pan1_hostname: ""
+node_deployment_pan2_hostname: ""
+
+# Additional variables for medium and large deployments
+node_deployment_mnt1_ip: ""
+node_deployment_mnt2_ip: ""
+node_deployment_psn1_ip: ""
+node_deployment_psn2_ip: ""
+node_deployment_mnt1_local_ip: ""
+node_deployment_mnt2_local_ip: ""
+node_deployment_psn1_local_ip: ""
+node_deployment_psn2_local_ip: ""
+node_deployment_mnt1_hostname: ""
+node_deployment_mnt2_hostname: ""
+node_deployment_psn1_hostname: ""
+node_deployment_psn2_hostname: ""

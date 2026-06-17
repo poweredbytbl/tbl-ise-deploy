@@ -36,10 +36,10 @@ userdata_path: "{{ results_dir }}/.user_data"
 az_virtual_network: "vnet-{{ az_resource_name }}"
 az_vn_address_prefixes_cidr: 198.18.0.0/24
 az_subnets:
-  - name: "sn-{{ az_resource_name }}"
+  - name: "sn-mgmt-{{ az_cust_id | lower }}-{{ az_location_abbreviation | lower }}"
     cidr: "198.18.0.0/27"
     type: mgmt
-  - name: "sn-{{ az_resource_name }}-func"
+  - name: "sn-func-{{ az_cust_id | lower }}-{{ az_location_abbreviation | lower }}"
     cidr: "198.18.0.64/27"
     type: func
 
@@ -69,7 +69,7 @@ az_ssh_key_data: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIN4NaUAogMuoIQRObS1iQpYx7
 
 # Cisco ISE Image
 az_ise_vm_size: "Standard_D4s_v3"
-az_managed_disk_type: "Standard_LRS"
+az_managed_disk_type: "StandardSSD_LRS"
 
 az_ise_image_offer: "cisco-ise-virtual"
 az_ise_image_publisher: "cisco"
@@ -77,13 +77,13 @@ az_ise_image_sku: "cisco-ise_3_4"
 az_ise_image_version: "latest"
 
 ise_nodes:
-  - hostname: "{{ az_location_abbreviation | lower }}-{{ az_resource_prefix | lower }}-n1"
-    resource_name: "vm-{{ az_resource_name }}-n1"
+  - hostname: "ise-poc-n1"
+    resource_name: "{{ az_resource_name }}-n1"
     ise_roles: "PrimaryAdmin, PrimaryMonitoring"  # This will be the first node deployed, so it will be the primary admin node in the deployment.
-    ise_services: "Session, Profiler, pxGrid"
+    ise_services: "Session, Profiler"
     disk_size: 500
-  - hostname: "{{ az_location_abbreviation | lower }}-{{ az_resource_prefix | lower }}-n2"
-    resource_name: "vm-{{ az_resource_name }}-n2"
+  - hostname: "ise-poc-n2"
+    resource_name: "{{ az_resource_name }}-n2"
     ise_roles: "SecondaryAdmin, SecondaryMonitoring"
-    ise_services: "Session, Profiler, pxGrid"
+    ise_services: "Session, Profiler"
     disk_size: 500

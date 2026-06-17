@@ -1,0 +1,243 @@
+---
+- name: Assert ISE SFTP backup inputs are defined
+  ansible.builtin.assert:
+    that:
+      - ise_sftp_backup_ise_hostname | length > 0
+      - ise_sftp_backup_ise_username | length > 0
+      - ise_sftp_backup_ise_password | length > 0
+      - ise_sftp_backup_repository_name | length > 0
+      - ise_sftp_backup_repository_server_name | length > 0
+      - ise_sftp_backup_repository_path | length > 0
+      - ise_sftp_backup_repository_path is match('^/')
+      - ise_sftp_backup_repository_username | length > 0
+      - ise_sftp_backup_repository_password | length > 0
+      - ise_sftp_backup_encryption_key | length > 0
+      - ise_sftp_backup_configuration_enabled | bool or ise_sftp_backup_operational_enabled | bool
+    fail_msg: >-
+      Define PAN/API credentials plus SFTP repository values before running
+      ise_sftp_backup. Required variables include
+      ise_sftp_backup_ise_hostname, ise_sftp_backup_repository_server_name,
+      ise_sftp_backup_repository_path, ise_sftp_backup_repository_username,
+      ise_sftp_backup_repository_password, and ise_sftp_backup_encryption_key.
+
+- name: Assert ISE backup encryption key format
+  ansible.builtin.assert:
+    that:
+      - ise_sftp_backup_encryption_key is match('^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])[A-Za-z0-9_#]{8,15}$')
+      - "'CcIiSsCco' not in ise_sftp_backup_encryption_key"
+    fail_msg: >-
+      ise_sftp_backup_encryption_key must be 8-15 characters, include at
+      least one uppercase letter, one lowercase letter, and one digit, and use
+      only letters, digits, underscore, or #.
+  no_log: "{{ ise_sftp_backup_hide_sensitive_logs }}"
+
+- name: Assert ISE operational backup CLI inputs are defined
+  ansible.builtin.assert:
+    that:
+      - ise_sftp_backup_operational_hostname | length > 0
+      - ise_sftp_backup_operational_username | length > 0
+      - ise_sftp_backup_operational_password | length > 0
+    fail_msg: >-
+      Define ise_sftp_backup_operational_hostname,
+      ise_sftp_backup_operational_username, and
+      ise_sftp_backup_operational_password when operational backups are enabled.
+  no_log: "{{ ise_sftp_backup_hide_sensitive_logs }}"
+  when: ise_sftp_backup_operational_enabled | bool
+
+- name: Set effective ISE backup names
+  ansible.builtin.set_fact:
+    ise_sftp_backup_configuration_effective_name: >-
+      {{
+        ise_sftp_backup_configuration_name
+        | default('', true)
+        | ternary(
+            ise_sftp_backup_configuration_name,
+            'ise-config-' ~ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ')
+          )
+      }}
+    ise_sftp_backup_operational_effective_name: >-
+      {{
+        ise_sftp_backup_operational_name
+        | default('', true)
+        | ternary(
+            ise_sftp_backup_operational_name,
+            'ise-operational-' ~ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ')
+          )
+      }}
+
+- name: Show ISE SFTP backup connection target
+  ansible.builtin.debug:
+    msg: >-
+      Configuring SFTP backup repository on ISE PAN
+      {{ ise_sftp_backup_ise_hostname }} as user
+      {{ ise_sftp_backup_ise_username }} with ISE API version
+      {{ ise_sftp_backup_ise_version }}.
+  when: ise_sftp_backup_show_connection_target | bool
+
+- name: Build ISE SFTP repository payload
+  ansible.builtin.set_fact:
+    ise_sftp_backup_repository_payload:
+      name: "{{ ise_sftp_backup_repository_name }}"
+      protocol: SFTP
+      serverName: "{{ ise_sftp_backup_repository_server_name }}"
+      path: "{{ ise_sftp_backup_repository_path }}"
+      userName: "{{ ise_sftp_backup_repository_username }}"
+      password: "{{ ise_sftp_backup_repository_password }}"
+      enablePki: "{{ ise_sftp_backup_repository_enable_pki }}"
+  no_log: "{{ ise_sftp_backup_hide_sensitive_logs }}"
+
+- name: Check ISE SFTP backup repository
+  ansible.builtin.uri:
+    url: "https://{{ ise_sftp_backup_ise_hostname }}/api/v1/repository/{{ ise_sftp_backup_repository_name | urlencode }}"
+    method: GET
+    url_username: "{{ ise_sftp_backup_ise_username }}"
+    url_password: "{{ ise_sftp_backup_ise_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ ise_sftp_backup_ise_verify }}"
+    headers:
+      Accept: application/json
+    status_code:
+      - 200
+      - 404
+    return_content: true
+  register: ise_sftp_backup_repository_lookup
+  no_log: "{{ ise_sftp_backup_hide_sensitive_logs }}"
+
+- name: Create ISE SFTP backup repository
+  ansible.builtin.uri:
+    url: "https://{{ ise_sftp_backup_ise_hostname }}/api/v1/repository"
+    method: POST
+    url_username: "{{ ise_sftp_backup_ise_username }}"
+    url_password: "{{ ise_sftp_backup_ise_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ ise_sftp_backup_ise_verify }}"
+    headers:
+      Accept: application/json
+      Content-Type: application/json
+    body_format: json
+    body: "{{ ise_sftp_backup_repository_payload }}"
+    status_code:
+      - 200
+      - 201
+  register: ise_sftp_backup_repository_create
+  no_log: "{{ ise_sftp_backup_hide_sensitive_logs }}"
+  when: ise_sftp_backup_repository_lookup.status == 404
+
+- name: Update ISE SFTP backup repository
+  ansible.builtin.uri:
+    url: "https://{{ ise_sftp_backup_ise_hostname }}/api/v1/repository/{{ ise_sftp_backup_repository_name | urlencode }}"
+    method: PUT
+    url_username: "{{ ise_sftp_backup_ise_username }}"
+    url_password: "{{ ise_sftp_backup_ise_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ ise_sftp_backup_ise_verify }}"
+    headers:
+      Accept: application/json
+      Content-Type: application/json
+    body_format: json
+    body: "{{ ise_sftp_backup_repository_payload }}"
+    status_code:
+      - 200
+      - 204
+  register: ise_sftp_backup_repository_update
+  no_log: "{{ ise_sftp_backup_hide_sensitive_logs }}"
+  when: ise_sftp_backup_repository_lookup.status == 200
+
+- name: Start ISE configuration backup to SFTP repository
+  cisco.ise.backup_config:
+    ise_hostname: "{{ ise_sftp_backup_ise_hostname }}"
+    ise_username: "{{ ise_sftp_backup_ise_username }}"
+    ise_password: "{{ ise_sftp_backup_ise_password }}"
+    ise_verify: "{{ ise_sftp_backup_ise_verify }}"
+    ise_single_request_timeout: "{{ ise_sftp_backup_ise_single_request_timeout }}"
+    ise_version: "{{ ise_sftp_backup_ise_version }}"
+    backupEncryptionKey: "{{ ise_sftp_backup_encryption_key }}"
+    backupName: "{{ ise_sftp_backup_configuration_effective_name }}"
+    repositoryName: "{{ ise_sftp_backup_repository_name }}"
+  register: ise_sftp_backup_start
+  no_log: "{{ ise_sftp_backup_hide_sensitive_logs }}"
+  when: ise_sftp_backup_configuration_enabled | bool
+
+- name: Poll ISE configuration backup status
+  cisco.ise.backup_last_status_info:
+    ise_hostname: "{{ ise_sftp_backup_ise_hostname }}"
+    ise_username: "{{ ise_sftp_backup_ise_username }}"
+    ise_password: "{{ ise_sftp_backup_ise_password }}"
+    ise_verify: "{{ ise_sftp_backup_ise_verify }}"
+    ise_single_request_timeout: "{{ ise_sftp_backup_ise_single_request_timeout }}"
+    ise_version: "{{ ise_sftp_backup_ise_version }}"
+  register: ise_sftp_backup_status
+  until:
+    - >-
+      (
+        not (ise_sftp_backup_wait_for_matching_backup_name | bool)
+        or
+        ise_sftp_backup_configuration_effective_name in (ise_sftp_backup_status.ise_response.name | default(''))
+      )
+    - >-
+      (ise_sftp_backup_status.ise_response.status | default('') | upper)
+      in (ise_sftp_backup_terminal_statuses | map('upper') | list)
+  retries: "{{ ise_sftp_backup_status_retries }}"
+  delay: "{{ ise_sftp_backup_status_delay }}"
+  failed_when:
+    - >-
+      not (ise_sftp_backup_wait_for_matching_backup_name | bool)
+      or
+      ise_sftp_backup_configuration_effective_name in (ise_sftp_backup_status.ise_response.name | default(''))
+    - >-
+      (ise_sftp_backup_status.ise_response.status | default('') | upper)
+      in (ise_sftp_backup_failure_statuses | map('upper') | list)
+  when:
+    - ise_sftp_backup_configuration_enabled | bool
+    - ise_sftp_backup_wait_for_completion | bool
+
+- name: Build ISE operational backup CLI command
+  ansible.builtin.set_fact:
+    ise_sftp_backup_operational_cli_command: >-
+      backup {{ ise_sftp_backup_operational_effective_name }}
+      repository {{ ise_sftp_backup_repository_name }}
+      ise-operational
+      encryption-key plain {{ ise_sftp_backup_encryption_key }}
+  no_log: "{{ ise_sftp_backup_hide_sensitive_logs }}"
+  when: ise_sftp_backup_operational_enabled | bool
+
+- name: Start ISE operational backup to SFTP repository
+  ansible.builtin.expect:
+    command: >-
+      ssh -tt {{ ise_sftp_backup_operational_ssh_options }}
+      {{ ise_sftp_backup_operational_username }}@{{ ise_sftp_backup_operational_hostname }}
+      {{ ise_sftp_backup_operational_cli_command | quote }}
+    responses:
+      (?i)are you sure you want to continue connecting: "yes"
+      (?i)password: "{{ ise_sftp_backup_operational_password }}"
+      (?i)do you want to continue: "yes"
+      (?i)proceed: "yes"
+      (?i)continue: "yes"
+    timeout: "{{ ise_sftp_backup_operational_timeout }}"
+  register: ise_sftp_backup_operational_start
+  no_log: "{{ ise_sftp_backup_hide_sensitive_logs }}"
+  when: ise_sftp_backup_operational_enabled | bool
+
+- name: Build ISE SFTP backup facts
+  ansible.builtin.set_fact:
+    ise_sftp_backup_facts:
+      pan: "{{ ise_sftp_backup_ise_hostname }}"
+      repository:
+        name: "{{ ise_sftp_backup_repository_name }}"
+        protocol: SFTP
+        server_name: "{{ ise_sftp_backup_repository_server_name }}"
+        path: "{{ ise_sftp_backup_repository_path }}"
+        created: "{{ ise_sftp_backup_repository_lookup.status == 404 }}"
+        updated: "{{ ise_sftp_backup_repository_lookup.status == 200 }}"
+      backup:
+        configuration:
+          enabled: "{{ ise_sftp_backup_configuration_enabled }}"
+          name: "{{ ise_sftp_backup_configuration_effective_name }}"
+          start_response: "{{ ise_sftp_backup_start.ise_response | default({}) }}"
+          status: "{{ ise_sftp_backup_status.ise_response | default({}) }}"
+        operational:
+          enabled: "{{ ise_sftp_backup_operational_enabled }}"
+          target: "{{ ise_sftp_backup_operational_hostname }}"
+          name: "{{ ise_sftp_backup_operational_effective_name }}"
+          stdout: "{{ ise_sftp_backup_operational_start.stdout | default('') }}"
+          rc: "{{ ise_sftp_backup_operational_start.rc | default(omit) }}"

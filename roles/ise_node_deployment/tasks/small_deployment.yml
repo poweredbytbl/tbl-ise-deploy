@@ -1,0 +1,90 @@
+---
+- name: Define small deployment node readiness targets
+  ansible.builtin.set_fact:
+    node_deployment_primary_node:
+      ip: "{{ node_deployment_pan1_ip }}"
+      hostname: "{{ node_deployment_pan1_hostname | default(node_deployment_ise_base_hostname | lower ~ '-server-1', true) }}"
+    node_deployment_secondary_nodes:
+      - ip: "{{ node_deployment_pan2_ip }}"
+        hostname: "{{ node_deployment_pan2_hostname | default(node_deployment_ise_base_hostname | lower ~ '-server-2', true) }}"
+
+- name: Build small deployment cluster node list
+  ansible.builtin.set_fact:
+    node_deployment_cluster_nodes: "{{ [node_deployment_primary_node] + node_deployment_secondary_nodes }}"
+
+- name: Assert small deployment ise_nodes config exists
+  ansible.builtin.assert:
+    that:
+      - ise_nodes is defined
+      - ise_nodes | length >= 2
+    fail_msg: >-
+      Define at least two entries in ise_nodes. The small node deployment role
+      uses ise_nodes[0] for PAN1 and ise_nodes[1] for PAN2.
+
+- name: Select small deployment node role and service config
+  ansible.builtin.set_fact:
+    node_deployment_primary_node_config: "{{ ise_nodes[0] | default({}) }}"
+    node_deployment_secondary_node_config: "{{ ise_nodes[1] | default({}) }}"
+
+- name: Assert small deployment node role and service config exists
+  ansible.builtin.assert:
+    that:
+      - node_deployment_primary_node_config.ise_roles is defined
+      - node_deployment_primary_node_config.ise_services is defined
+      - node_deployment_secondary_node_config.ise_roles is defined
+      - node_deployment_secondary_node_config.ise_services is defined
+    fail_msg: >-
+      Define ise_roles and ise_services for the first two entries in ise_nodes.
+      The small node deployment role uses ise_nodes[0] for PAN1 and ise_nodes[1]
+      for PAN2.
+
+- name: Build small deployment role and service lists
+  ansible.builtin.set_fact:
+    node_deployment_primary_roles: "{{ node_deployment_primary_node_config.ise_roles.split(',') | map('trim') | reject('equalto', '') | list }}"
+    node_deployment_primary_services: "{{ node_deployment_primary_node_config.ise_services.split(',') | map('trim') | reject('equalto', '') | list }}"
+    node_deployment_secondary_roles: "{{ node_deployment_secondary_node_config.ise_roles.split(',') | map('trim') | reject('equalto', '') | list }}"
+    node_deployment_secondary_services: "{{ node_deployment_secondary_node_config.ise_services.split(',') | map('trim') | reject('equalto', '') | list }}"
+
+- name: Wait for small deployment node readiness
+  ansible.builtin.include_tasks: wait_for_node_readiness.yml
+
+- name: Set primary node roles and services
+  cisco.ise.node_deployment:
+    ise_hostname: "{{ node_deployment_pan1_ip }}"
+    ise_username: "{{ node_deployment_ise_username }}"
+    ise_password: "{{ node_deployment_ise_password }}"
+    ise_verify: "{{ node_deployment_ise_verify }}"
+    ise_single_request_timeout: "{{ node_deployment_ise_single_request_timeout }}"
+    ise_version: "{{ node_deployment_ise_version }}"
+    state: present
+    hostname: "{{ node_deployment_primary_node.hostname }}"
+    roles: "{{ node_deployment_primary_roles }}"
+    services: "{{ node_deployment_primary_services }}"
+
+- name: Wait for primary PAN API readiness before registering secondary PAN
+  ansible.builtin.include_tasks: wait_for_ise_api_readiness.yml
+  vars:
+    node_deployment_api_readiness_node: "{{ node_deployment_primary_node }}"
+    node_deployment_api_readiness_expected_roles: "{{ node_deployment_primary_roles }}"
+
+- name: Register the secondary PAN to the cluster
+  cisco.ise.node_deployment:
+    ise_hostname: "{{ node_deployment_pan1_ip }}"
+    ise_username: "{{ node_deployment_ise_username }}"
+    ise_password: "{{ node_deployment_ise_password }}"
+    ise_verify: "{{ node_deployment_ise_verify }}"
+    ise_single_request_timeout: "{{ node_deployment_ise_single_request_timeout }}"
+    ise_version: "{{ node_deployment_ise_version }}"
+    state: present
+    allowCertImport: true
+    fqdn: "{{ item.fqdn }}"
+    hostname: "{{ item.hostname }}"
+    userName: "{{ node_deployment_ise_username }}"
+    password: "{{ node_deployment_ise_password }}"
+    roles: "{{ item.roles }}"
+    services: "{{ item.services }}"
+  loop:
+    - fqdn: "{{ node_deployment_pan2_hostname | default(node_deployment_ise_base_hostname | lower ~ '-server-2', true) }}.{{ node_deployment_ise_domain }}"
+      hostname: "{{ node_deployment_pan2_hostname | default(node_deployment_ise_base_hostname | lower ~ '-server-2', true) }}"
+      roles: "{{ node_deployment_secondary_roles }}"
+      services: "{{ node_deployment_secondary_services }}"

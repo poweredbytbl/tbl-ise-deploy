@@ -1,0 +1,18 @@
+---
+ise_cluster_query_ise_username: "{{ username | default('admin') }}"
+ise_cluster_query_ise_password: "{{ password | default('') }}"
+ise_cluster_query_ise_verify: false
+ise_cluster_query_ise_version: "3.3_patch_1"
+ise_cluster_query_ise_single_request_timeout: 300
+
+# Override this to force a specific primary admin API endpoint.
+ise_cluster_query_primary_admin_endpoint: ""
+
+# Optional public IP list in the same order as ise_nodes.
+ise_cluster_query_node_public_ips: []
+
+ise_cluster_query_include_node_inventory: false
+ise_cluster_query_include_replication_status: false
+ise_cluster_query_show_results: true
+ise_cluster_query_write_results: true
+ise_cluster_query_results_path: "{{ results_dir | default(playbook_dir | default('.')) }}/ise_cluster_query_{{ az_location | default('cluster') }}.yml"

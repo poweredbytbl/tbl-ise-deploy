@@ -1,0 +1,12 @@
+---
+- name: Query Cisco ISE cluster node facts
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files:
+    - ../vars/azure_ise_config.yml
+  vars:
+    node_deployment_pan1_ip: 52.247.28.199
+    node_deployment_pan2_ip: 20.114.255.104
+  roles:
+    - ise_cluster_query

@@ -1,0 +1,46 @@
+---
+ise_sftp_backup_ise_hostname: "{{ node_deployment_pan1_ip | default(ise_hostname | default('', true), true) }}"
+ise_sftp_backup_ise_username: "{{ node_deployment_ise_username | default(ise_username | default(username | default('admin'), true), true) }}"
+ise_sftp_backup_ise_password: "{{ node_deployment_ise_password | default(ise_password | default(password | default(''), true), true) }}"
+ise_sftp_backup_ise_verify: "{{ node_deployment_ise_verify | default(ise_verify | default(false), true) }}"
+ise_sftp_backup_ise_version: "{{ node_deployment_ise_version | default(ise_version | default('3.3_patch_1'), true) }}"
+ise_sftp_backup_ise_single_request_timeout: 300
+ise_sftp_backup_show_connection_target: true
+
+ise_sftp_backup_repository_name: ise-sftp-backup
+ise_sftp_backup_repository_server_name: ""
+ise_sftp_backup_repository_path: "/"
+ise_sftp_backup_repository_username: ""
+ise_sftp_backup_repository_password: ""
+ise_sftp_backup_repository_enable_pki: false
+
+ise_sftp_backup_name: ""
+ise_sftp_backup_configuration_enabled: true
+ise_sftp_backup_configuration_name: "{{ ise_sftp_backup_name }}"
+ise_sftp_backup_operational_enabled: true
+ise_sftp_backup_operational_name: ""
+ise_sftp_backup_operational_hostname: "{{ ise_sftp_backup_ise_hostname }}"
+ise_sftp_backup_operational_username: "{{ ise_sftp_backup_ise_username }}"
+ise_sftp_backup_operational_password: "{{ ise_sftp_backup_ise_password }}"
+ise_sftp_backup_operational_ssh_options: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+ise_sftp_backup_operational_timeout: 14400
+ise_sftp_backup_encryption_key: ""
+
+ise_sftp_backup_wait_for_completion: true
+ise_sftp_backup_wait_for_matching_backup_name: true
+ise_sftp_backup_status_retries: 120
+ise_sftp_backup_status_delay: 30
+ise_sftp_backup_success_statuses:
+  - COMPLETED
+  - SUCCESS
+  - SUCCESSFUL
+ise_sftp_backup_failure_statuses:
+  - FAILED
+  - FAILURE
+  - ERROR
+  - CANCELED
+  - CANCELLED
+  - ABORTED
+ise_sftp_backup_terminal_statuses: "{{ ise_sftp_backup_success_statuses + ise_sftp_backup_failure_statuses }}"
+
+ise_sftp_backup_hide_sensitive_logs: true

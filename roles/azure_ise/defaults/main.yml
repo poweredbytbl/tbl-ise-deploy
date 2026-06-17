@@ -50,7 +50,7 @@ pxgrid_cloud: "no"
 
 # Cisco ISE Image
 az_ise_vm_size: "Standard_D4s_v3"
-az_managed_disk_type: "Standard_LRS"
+az_managed_disk_type: "StandardSSD_LRS"
 
 az_ise_image_offer: "cisco-ise-virtual"
 az_ise_image_publisher: "cisco"

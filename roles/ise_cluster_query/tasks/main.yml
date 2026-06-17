@@ -1,0 +1,187 @@
+---
+- name: Assert ISE cluster query inputs are defined
+  ansible.builtin.assert:
+    that:
+      - ise_nodes is defined
+      - ise_nodes | length > 0
+      - ise_cluster_query_ise_username | length > 0
+      - ise_cluster_query_ise_password | length > 0
+    fail_msg: >-
+      Define ise_nodes plus ISE API credentials before running ise_cluster_query.
+      The role uses the ise_nodes entry containing PrimaryAdmin as the cluster
+      query target.
+
+- name: Initialize primary admin node candidates
+  ansible.builtin.set_fact:
+    ise_cluster_query_primary_admin_candidates: []
+    ise_cluster_query_primary_admin_candidate_indexes: []
+
+- name: Select PrimaryAdmin node from ise_nodes
+  ansible.builtin.set_fact:
+    ise_cluster_query_primary_admin_candidates: "{{ ise_cluster_query_primary_admin_candidates + [node_item] }}"
+    ise_cluster_query_primary_admin_candidate_indexes: "{{ ise_cluster_query_primary_admin_candidate_indexes + [node_index] }}"
+  loop: "{{ ise_nodes }}"
+  loop_control:
+    index_var: node_index
+    loop_var: node_item
+    label: "{{ node_item.hostname | default('unknown') }}"
+  when: "'PrimaryAdmin' in ((node_item.ise_roles | default('')).split(',') | map('trim') | list)"
+
+- name: Assert PrimaryAdmin node was found
+  ansible.builtin.assert:
+    that:
+      - ise_cluster_query_primary_admin_candidates | length > 0
+    fail_msg: "Unable to find an ise_nodes entry with ise_roles containing PrimaryAdmin."
+
+- name: Set ISE cluster query target
+  ansible.builtin.set_fact:
+    ise_cluster_query_primary_admin_node: "{{ ise_cluster_query_primary_admin_candidates | first }}"
+    ise_cluster_query_primary_admin_index: "{{ ise_cluster_query_primary_admin_candidate_indexes | first }}"
+    ise_cluster_query_primary_admin_fqdn: >-
+      {{
+        (ise_cluster_query_primary_admin_candidates | first).hostname ~
+        ((dnsdomain is defined and dnsdomain | length > 0) | ternary('.' ~ dnsdomain, ''))
+      }}
+
+- name: Build ISE cluster query public IP candidates
+  ansible.builtin.set_fact:
+    ise_cluster_query_public_ip_candidates:
+      - "{{ ise_cluster_query_primary_admin_endpoint | default('', true) }}"
+      - "{{ ise_cluster_query_primary_admin_node.public_ip | default('', true) }}"
+      - "{{ ise_cluster_query_primary_admin_node.public_ip_address | default('', true) }}"
+      - "{{ ise_cluster_query_primary_admin_node.mgmt_public_ip | default('', true) }}"
+      - "{{ ise_cluster_query_primary_admin_node.ansible_host | default('', true) }}"
+      - "{{ ise_cluster_query_node_public_ips[ise_cluster_query_primary_admin_index | int] if (ise_cluster_query_node_public_ips | length) > (ise_cluster_query_primary_admin_index | int) else '' }}"
+      - "{{ node_deployment_pan1_ip | default('', true) if (ise_cluster_query_primary_admin_index | int) == 0 else '' }}"
+      - "{{ node_deployment_pan2_ip | default('', true) if (ise_cluster_query_primary_admin_index | int) == 1 else '' }}"
+      - "{{ ise_cluster_query_primary_admin_fqdn }}"
+
+- name: Set ISE cluster query API endpoint
+  ansible.builtin.set_fact:
+    ise_cluster_query_primary_admin_api_endpoint: >-
+      {{
+        ise_cluster_query_public_ip_candidates
+        | reject('equalto', '')
+        | list
+        | first
+      }}
+
+- name: Query ISE deployment nodes from primary admin
+  cisco.ise.node_deployment_info:
+    ise_hostname: "{{ ise_cluster_query_primary_admin_api_endpoint }}"
+    ise_username: "{{ ise_cluster_query_ise_username }}"
+    ise_password: "{{ ise_cluster_query_ise_password }}"
+    ise_verify: "{{ ise_cluster_query_ise_verify }}"
+    ise_single_request_timeout: "{{ ise_cluster_query_ise_single_request_timeout }}"
+    ise_version: "{{ ise_cluster_query_ise_version }}"
+  register: ise_cluster_query_deployment_nodes
+
+- name: Query configured ISE node details
+  cisco.ise.node_deployment_info:
+    ise_hostname: "{{ ise_cluster_query_primary_admin_api_endpoint }}"
+    ise_username: "{{ ise_cluster_query_ise_username }}"
+    ise_password: "{{ ise_cluster_query_ise_password }}"
+    ise_verify: "{{ ise_cluster_query_ise_verify }}"
+    ise_single_request_timeout: "{{ ise_cluster_query_ise_single_request_timeout }}"
+    ise_version: "{{ ise_cluster_query_ise_version }}"
+    hostname: "{{ node_item.hostname }}"
+  loop: "{{ ise_nodes }}"
+  loop_control:
+    loop_var: node_item
+    label: "{{ node_item.hostname }}"
+  register: ise_cluster_query_configured_node_details
+  failed_when: false
+
+- name: Query ISE node inventory
+  cisco.ise.node_info:
+    ise_hostname: "{{ ise_cluster_query_primary_admin_api_endpoint }}"
+    ise_username: "{{ ise_cluster_query_ise_username }}"
+    ise_password: "{{ ise_cluster_query_ise_password }}"
+    ise_verify: "{{ ise_cluster_query_ise_verify }}"
+    ise_single_request_timeout: "{{ ise_cluster_query_ise_single_request_timeout }}"
+    ise_version: "{{ ise_cluster_query_ise_version }}"
+    page: 1
+    size: 100
+  register: ise_cluster_query_node_inventory
+  failed_when: false
+  ignore_errors: true
+  when: ise_cluster_query_include_node_inventory
+
+- name: Query node replication status
+  cisco.ise.node_replication_status_info:
+    ise_hostname: "{{ ise_cluster_query_primary_admin_api_endpoint }}"
+    ise_username: "{{ ise_cluster_query_ise_username }}"
+    ise_password: "{{ ise_cluster_query_ise_password }}"
+    ise_verify: "{{ ise_cluster_query_ise_verify }}"
+    ise_single_request_timeout: "{{ ise_cluster_query_ise_single_request_timeout }}"
+    ise_version: "{{ ise_cluster_query_ise_version }}"
+    node: "{{ node_item.id }}"
+  loop: "{{ ise_cluster_query_node_inventory.ise_response | default([]) }}"
+  loop_control:
+    loop_var: node_item
+    label: "{{ node_item.name | default(node_item.id) }}"
+  register: ise_cluster_query_replication_status
+  failed_when: false
+  ignore_errors: true
+  when:
+    - ise_cluster_query_include_node_inventory
+    - ise_cluster_query_include_replication_status
+    - not (ise_cluster_query_node_inventory.failed | default(false))
+
+- name: Initialize normalized ISE cluster node list
+  ansible.builtin.set_fact:
+    ise_cluster_query_nodes: []
+
+- name: Build normalized ISE cluster node list
+  ansible.builtin.set_fact:
+    ise_cluster_query_nodes: >-
+      {{
+        ise_cluster_query_nodes + [
+          {
+            'hostname': node_result.ise_response.hostname | default(node_result.node_item.hostname),
+            'fqdn': node_result.ise_response.fqdn | default(''),
+            'ip_address': node_result.ise_response.ipAddress | default(''),
+            'node_status': node_result.ise_response.nodeStatus | default(''),
+            'node_service_types': node_result.ise_response.nodeServiceTypes | default(''),
+            'roles': node_result.ise_response.roles | default(node_result.node_item.ise_roles.split(',') | map('trim') | reject('equalto', '') | list),
+            'services': node_result.ise_response.services | default(node_result.node_item.ise_services.split(',') | map('trim') | reject('equalto', '') | list),
+            'configured': node_result.node_item,
+            'query_failed': node_result.failed | default(false),
+            'query_message': node_result.msg | default(''),
+            'raw': node_result.ise_response | default({})
+          }
+        ]
+      }}
+  loop: "{{ ise_cluster_query_configured_node_details.results | default([]) }}"
+  loop_control:
+    loop_var: node_result
+    label: "{{ node_result.node_item.hostname | default('unknown') }}"
+
+- name: Build ISE cluster query facts
+  ansible.builtin.set_fact:
+    ise_cluster_query_facts:
+      primary_admin:
+        api_endpoint: "{{ ise_cluster_query_primary_admin_api_endpoint }}"
+        configured: "{{ ise_cluster_query_primary_admin_node }}"
+      nodes: "{{ ise_cluster_query_nodes }}"
+      cluster:
+        deployment_nodes: "{{ ise_cluster_query_deployment_nodes.ise_response | default([]) }}"
+        node_inventory: "{{ ise_cluster_query_node_inventory.ise_response | default([]) }}"
+        replication_status: "{{ ise_cluster_query_replication_status.results | default([]) }}"
+      raw:
+        deployment_nodes: "{{ ise_cluster_query_deployment_nodes }}"
+        configured_node_details: "{{ ise_cluster_query_configured_node_details }}"
+        node_inventory: "{{ ise_cluster_query_node_inventory | default({}) }}"
+        replication_status: "{{ ise_cluster_query_replication_status | default({}) }}"
+
+- name: Write ISE cluster query results
+  ansible.builtin.copy:
+    dest: "{{ ise_cluster_query_results_path }}"
+    mode: "0644"
+    content: "{{ ise_cluster_query_facts | to_nice_yaml(indent=2) }}"
+  when: ise_cluster_query_write_results
+
+- name: Show ISE cluster query facts
+  ansible.builtin.debug:
+    var: ise_cluster_query_facts
+  when: ise_cluster_query_show_results

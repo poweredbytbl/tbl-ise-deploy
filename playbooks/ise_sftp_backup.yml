@@ -1,0 +1,23 @@
+---
+- name: Configure Cisco ISE SFTP backup repository and run backup
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files:
+    - ../vars/azure_ise_config.yml
+  vars:
+    node_deployment_ise_username: iseadmin
+    node_deployment_ise_password: "Your#1SecretPassword!!"
+    node_deployment_ise_domain: "{{ dnsdomain }}"
+    node_deployment_pan1_ip: 104.209.146.93
+    node_deployment_pan1_hostname: ise-poc-n1
+    ise_sftp_backup_repository_name: ise-sftp-backup
+    ise_sftp_backup_repository_server_name: "tblnisebackup.blob.core.windows.net"
+    ise_sftp_backup_repository_path: "/"
+    ise_sftp_backup_repository_username: "tblnisebackup.ise"
+    ise_sftp_backup_repository_password: "OX6eJZVeK4vZtpiXMWYD9fnVm6JbkUaj"
+    ise_sftp_backup_repository_enable_pki: false
+    ise_sftp_backup_repository_pki_cert: ""
+    ise_sftp_backup_encryption_key: "IseBkp#927"
+  roles:
+    - ise_sftp_backup

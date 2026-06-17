@@ -1,0 +1,78 @@
+---
+- name: Define medium deployment node readiness targets
+  ansible.builtin.set_fact:
+    node_deployment_primary_node:
+      ip: "{{ node_deployment_pan1_ip }}"
+      hostname: "{{ node_deployment_pan1_hostname | default(node_deployment_ise_base_hostname | lower ~ '-pan-server-1', true) }}"
+    node_deployment_secondary_nodes:
+      - ip: "{{ node_deployment_pan2_ip }}"
+        hostname: "{{ node_deployment_pan2_hostname | default(node_deployment_ise_base_hostname | lower ~ '-pan-server-2', true) }}"
+      - ip: "{{ node_deployment_psn1_ip }}"
+        hostname: "{{ node_deployment_psn1_hostname | default(node_deployment_ise_base_hostname | lower ~ '-psn-server-1', true) }}"
+      - ip: "{{ node_deployment_psn2_ip }}"
+        hostname: "{{ node_deployment_psn2_hostname | default(node_deployment_ise_base_hostname | lower ~ '-psn-server-2', true) }}"
+
+- name: Build medium deployment cluster node list
+  ansible.builtin.set_fact:
+    node_deployment_cluster_nodes: "{{ [node_deployment_primary_node] + node_deployment_secondary_nodes }}"
+
+- name: Wait for medium deployment node readiness
+  ansible.builtin.include_tasks: wait_for_node_readiness.yml
+
+- name: Wait for primary PAN API readiness before registering secondary PAN
+  ansible.builtin.include_tasks: wait_for_ise_api_readiness.yml
+  vars:
+    node_deployment_api_readiness_node: "{{ node_deployment_primary_node }}"
+    node_deployment_api_readiness_expected_roles:
+      - PrimaryAdmin
+
+- name: Register the nodes to the cluster
+  cisco.ise.node_deployment:
+    ise_hostname: "{{ node_deployment_pan1_ip }}"
+    ise_username: "{{ node_deployment_ise_username }}"
+    ise_password: "{{ node_deployment_ise_password }}"
+    ise_verify: "{{ node_deployment_ise_verify }}"
+    ise_single_request_timeout: "{{ node_deployment_ise_single_request_timeout }}"
+    ise_version: "{{ node_deployment_ise_version }}"
+    state: present
+    allowCertImport: true
+    fqdn: "{{ item.fqdn }}"
+    hostname: "{{ item.hostname }}"
+    userName: "{{ node_deployment_ise_username }}"
+    password: "{{ node_deployment_ise_password }}"
+    roles: "{{ item.roles }}"
+    services: "{{ item.services }}"
+  loop:
+    - fqdn: "{{ node_deployment_pan2_hostname | default(node_deployment_ise_base_hostname | lower ~ '-pan-server-2', true) }}.{{ node_deployment_ise_domain }}"
+      hostname: "{{ node_deployment_pan2_hostname | default(node_deployment_ise_base_hostname | lower ~ '-pan-server-2', true) }}"
+      roles:
+        - SecondaryAdmin
+        - SecondaryMonitoring
+      services: []
+    - fqdn: "{{ node_deployment_psn1_hostname | default(node_deployment_ise_base_hostname | lower ~ '-psn-server-1', true) }}.{{ node_deployment_ise_domain }}"
+      hostname: "{{ node_deployment_psn1_hostname | default(node_deployment_ise_base_hostname | lower ~ '-psn-server-1', true) }}"
+      roles: []
+      services:
+        - Session
+        - Profiler
+    - fqdn: "{{ node_deployment_psn2_hostname | default(node_deployment_ise_base_hostname | lower ~ '-psn-server-2', true) }}.{{ node_deployment_ise_domain }}"
+      hostname: "{{ node_deployment_psn2_hostname | default(node_deployment_ise_base_hostname | lower ~ '-psn-server-2', true) }}"
+      roles: []
+      services:
+        - Session
+        - Profiler
+
+- name: Remove the Session and Profiler services from the primary node
+  cisco.ise.node_deployment:
+    ise_hostname: "{{ node_deployment_pan1_ip }}"
+    ise_username: "{{ node_deployment_ise_username }}"
+    ise_password: "{{ node_deployment_ise_password }}"
+    ise_verify: "{{ node_deployment_ise_verify }}"
+    ise_single_request_timeout: "{{ node_deployment_ise_single_request_timeout }}"
+    ise_version: "{{ node_deployment_ise_version }}"
+    state: present
+    hostname: "{{ node_deployment_pan1_hostname | default(node_deployment_ise_base_hostname | lower ~ '-pan-server-1', true) }}"
+    roles:
+      - PrimaryAdmin
+      - PrimaryMonitoring
+    services: []

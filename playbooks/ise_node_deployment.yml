@@ -1,0 +1,18 @@
+---
+- name: Deploy Cisco ISE node(s) on Azure
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files:
+    ../vars/azure_ise_config.yml
+  vars:
+    node_deployment_ise_deployment_type: small
+    node_deployment_ise_username: iseadmin
+    node_deployment_ise_password: "Your#1SecretPassword!"
+    node_deployment_ise_domain: "{{ dnsdomain }}"
+    node_deployment_pan1_ip: 104.209.146.93
+    node_deployment_pan2_ip: 20.7.143.251
+    node_deployment_pan1_hostname: ise-poc-n1
+    node_deployment_pan2_hostname: ise-poc-n2
+  roles:
+    - ise_node_deployment

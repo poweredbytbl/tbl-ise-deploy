@@ -1,0 +1,52 @@
+---
+- name: Assert ISE API readiness target is defined
+  ansible.builtin.assert:
+    that:
+      - node_deployment_api_readiness_node is defined
+      - node_deployment_api_readiness_node.ip is defined
+      - node_deployment_api_readiness_node.hostname is defined
+      - node_deployment_api_readiness_node.ip | length > 0
+      - node_deployment_api_readiness_node.hostname | length > 0
+    fail_msg: >-
+      Define node_deployment_api_readiness_node with ip and hostname before
+      including wait_for_ise_api_readiness.yml.
+
+- name: Wait for ISE API port to accept connections
+  ansible.builtin.wait_for:
+    host: "{{ node_deployment_api_readiness_node.api_ip | default(node_deployment_api_readiness_node.ip) }}"
+    port: 443
+    connect_timeout: 10
+    sleep: "{{ node_deployment_ise_api_wait_sleep }}"
+    timeout: "{{ node_deployment_ise_api_wait_timeout }}"
+
+- name: Wait for ISE node deployment API to be ready
+  cisco.ise.node_deployment_info:
+    ise_hostname: >-
+      {{
+        node_deployment_api_readiness_query_ip
+        | default(node_deployment_api_readiness_node.api_ip | default(node_deployment_api_readiness_node.ip))
+      }}
+    ise_username: "{{ node_deployment_ise_username }}"
+    ise_password: "{{ node_deployment_ise_password }}"
+    ise_verify: "{{ node_deployment_ise_verify }}"
+    ise_single_request_timeout: "{{ node_deployment_ise_single_request_timeout }}"
+    ise_version: "{{ node_deployment_ise_version }}"
+    hostname: "{{ node_deployment_api_readiness_node.hostname }}"
+  register: node_deployment_api_readiness_status
+  until: >-
+    not (node_deployment_api_readiness_status.failed | default(false))
+    and (
+      (node_deployment_api_readiness_expected_roles | default([]) | length) == 0
+      or (
+        node_deployment_api_readiness_expected_roles
+        | difference(node_deployment_api_readiness_status.ise_response.roles | default([]))
+        | length
+      ) == 0
+    )
+    and (
+      (node_deployment_api_readiness_expected_status | default('Connected') | length) == 0
+      or node_deployment_api_readiness_status.ise_response.nodeStatus is not defined
+      or node_deployment_api_readiness_status.ise_response.nodeStatus == node_deployment_api_readiness_expected_status | default('Connected')
+    )
+  retries: "{{ node_deployment_ise_api_retries }}"
+  delay: "{{ node_deployment_ise_api_retry_delay }}"
